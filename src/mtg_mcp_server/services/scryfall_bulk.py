@@ -38,7 +38,7 @@ from mtg_mcp_server.services.base import DEFAULT_USER_AGENT, ServiceError
 from mtg_mcp_server.types import Card
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Iterator
+    from collections.abc import AsyncGenerator, Callable, Iterator
     from typing import Any as JSONValue
 
 __all__ = [
@@ -823,7 +823,7 @@ _shared_users = 0
 @contextlib.asynccontextmanager
 async def shared_bulk_client(
     factory: Callable[[], ScryfallBulkClient],
-) -> AsyncIterator[ScryfallBulkClient]:
+) -> AsyncGenerator[ScryfallBulkClient, None]:
     """Yield the process-wide bulk client, creating it on first use.
 
     ``factory`` is only called when no shared client exists yet, so callers

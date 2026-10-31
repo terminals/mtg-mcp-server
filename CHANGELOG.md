@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   standalone measurement), and the bulk provider and workflow server share one
   client instead of each holding a full copy. New `MTG_MCP_BULK_DATA_PRELOAD`
   setting warms the data at startup for HTTP deployments.
+- `budget_upgrade` prices EDHREC staples from bulk data (Scryfall API only for cards
+  bulk data lacks) and drops duplicate cards. Pricing several hundred cards one
+  rate-limited API call at a time took over five minutes and timed out.
 - `spellbook_estimate_bracket` reads Commander Spellbook's current response shape
   (per-card `gameChanger`/`massLandDenial`/`extraTurn` flags and per-combo
   `definitelyTwoCard`/`lock` flags). It previously reported "no bracket-relevant

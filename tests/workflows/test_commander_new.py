@@ -1002,6 +1002,50 @@ class TestCardComparisonResponseFormat:
         assert "**Data Sources:**" not in concise.markdown
 
 
+class TestBudgetUpgradeBulkPrices:
+    """With bulk data available, prices come from memory, not the Scryfall API."""
+
+    async def test_prices_from_bulk_and_duplicates_collapsed(
+        self,
+        scryfall: AsyncMock,
+        edhrec: AsyncMock,
+    ) -> None:
+        """Regression: pricing every EDHREC card through the rate-limited API
+        took over five minutes for a real commander page and timed out."""
+        frog = EDHRECCard(name="Spore Frog", sanitized="spore-frog", synergy=0.61, inclusion=61)
+        edhrec.commander_top_cards = AsyncMock(
+            return_value=EDHRECCommanderData(
+                commander_name=COMMANDER_NAME,
+                total_decks=100,
+                cardlists=[
+                    EDHRECCardList(header="Top Cards", tag="topcards", cardviews=[frog]),
+                    EDHRECCardList(header="Creatures", tag="creatures", cardviews=[frog]),
+                ],
+            )
+        )
+        frog_card = Card(
+            id="test-frog",
+            name="Spore Frog",
+            type_line="Creature — Frog",
+            prices=CardPrices(usd="0.40"),
+        )
+        bulk = AsyncMock()
+        bulk.get_cards = AsyncMock(return_value={"Spore Frog": frog_card})
+        scryfall.get_card_by_name = AsyncMock(side_effect=AssertionError("API not expected"))
+
+        result = await budget_upgrade(
+            COMMANDER_NAME,
+            budget=5.00,
+            scryfall=scryfall,
+            edhrec=edhrec,
+            bulk=bulk,
+        )
+
+        bulk.get_cards.assert_awaited_once_with(["Spore Frog"])
+        scryfall.get_card_by_name.assert_not_awaited()
+        assert result.markdown.count("Spore Frog") == 1
+
+
 class TestBudgetUpgradeResponseFormat:
     """Concise output is shorter than detailed and omits verbose sections."""
 

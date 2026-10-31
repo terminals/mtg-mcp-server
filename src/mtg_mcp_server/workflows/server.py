@@ -445,6 +445,7 @@ async def budget_upgrade(
             budget=budget,
             num_suggestions=num_suggestions,
             scryfall=_require_scryfall(),
+            bulk=_bulk,
             edhrec=_require_edhrec(),
             on_progress=lambda step, total: _progress(ctx, step, total),
             response_format=response_format,
