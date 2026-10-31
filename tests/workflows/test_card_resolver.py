@@ -9,7 +9,12 @@ import pytest
 from mtg_mcp_server.services.base import ServiceError
 from mtg_mcp_server.services.scryfall import CardNotFoundError
 from mtg_mcp_server.services.scryfall_bulk import ScryfallBulkError
-from mtg_mcp_server.workflows.card_resolver import resolve_card, resolve_cards
+from mtg_mcp_server.types import Card, CardPrices
+from mtg_mcp_server.workflows.card_resolver import (
+    fill_missing_prices,
+    resolve_card,
+    resolve_cards,
+)
 
 
 @pytest.fixture
@@ -189,3 +194,53 @@ class TestResolveCards:
         result = await resolve_cards(["sol ring"], bulk=mock_bulk, scryfall=mock_scryfall)
 
         assert result == {"sol ring": bulk_card}
+
+
+def _priceless(name: str, usd: str | None = None) -> Card:
+    return Card(id=f"id-{name}", name=name, type_line="Artifact", prices=CardPrices(usd=usd))
+
+
+class TestFillMissingPrices:
+    """Paper-price backfill for bulk cards without a USD price."""
+
+    async def test_resolve_cards_fill_prices(self, mock_bulk, mock_scryfall):
+        """fill_prices=True re-prices bulk hits whose USD price is null."""
+        mock_bulk.get_cards = AsyncMock(
+            return_value={"Sol Ring": _priceless("Sol Ring"), "Mox": _priceless("Mox", "9.99")}
+        )
+
+        async def _with_paper_price(card: Card) -> Card:
+            return card.model_copy(update={"prices": CardPrices(usd="1.23")})
+
+        mock_scryfall.with_paper_price = AsyncMock(side_effect=_with_paper_price)
+
+        result = await resolve_cards(
+            ["Sol Ring", "Mox"], bulk=mock_bulk, scryfall=mock_scryfall, fill_prices=True
+        )
+
+        assert result["Sol Ring"] is not None
+        assert result["Sol Ring"].prices.usd == "1.23"
+        assert result["Mox"] is not None
+        assert result["Mox"].prices.usd == "9.99"
+        mock_scryfall.with_paper_price.assert_awaited_once()
+
+    async def test_resolve_cards_default_does_not_fill(self, mock_bulk, mock_scryfall):
+        """Without fill_prices, no price lookups happen."""
+        mock_bulk.get_cards = AsyncMock(return_value={"Sol Ring": _priceless("Sol Ring")})
+        mock_scryfall.with_paper_price = AsyncMock()
+
+        result = await resolve_cards(["Sol Ring"], bulk=mock_bulk, scryfall=mock_scryfall)
+
+        assert result["Sol Ring"] is not None
+        assert result["Sol Ring"].prices.usd is None
+        mock_scryfall.with_paper_price.assert_not_awaited()
+
+    async def test_lookup_errors_and_cap(self, mock_scryfall):
+        """Errors leave the card unpriced; lookups stop at max_lookups."""
+        mock_scryfall.with_paper_price = AsyncMock(side_effect=ServiceError("down"))
+        cards = [_priceless(f"Card {i}") for i in range(5)]
+
+        filled = await fill_missing_prices(cards, scryfall=mock_scryfall, max_lookups=3)
+
+        assert filled == {}
+        assert mock_scryfall.with_paper_price.await_count == 3

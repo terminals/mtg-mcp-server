@@ -14,6 +14,7 @@ import structlog
 from mtg_mcp_server.workflows import WorkflowResult
 
 if TYPE_CHECKING:
+    from mtg_mcp_server.services.scryfall import ScryfallClient
     from mtg_mcp_server.services.scryfall_bulk import ScryfallBulkClient
     from mtg_mcp_server.types import Card
 
@@ -35,6 +36,7 @@ async def price_comparison(
     cards: list[str],
     *,
     bulk: ScryfallBulkClient,
+    scryfall: ScryfallClient | None = None,
     response_format: Literal["detailed", "concise"] = "detailed",
 ) -> WorkflowResult:
     """Compare prices across multiple cards using Scryfall bulk data.
@@ -45,6 +47,8 @@ async def price_comparison(
     Args:
         cards: Card names to compare (deduplication handled internally).
         bulk: Initialized ScryfallBulkClient.
+        scryfall: Optional ScryfallClient used to price cards whose bulk
+            printing has no USD price yet (cheapest paper printing).
 
     Returns:
         WorkflowResult with markdown and structured data.
@@ -54,6 +58,18 @@ async def price_comparison(
     # Deduplicate while preserving order
     unique_cards = list(dict.fromkeys(cards))
     resolved = await bulk.get_cards(unique_cards)
+
+    if scryfall is not None:
+        from mtg_mcp_server.workflows.card_resolver import fill_missing_prices
+
+        repriced = await fill_missing_prices(
+            [card for card in resolved.values() if card is not None], scryfall=scryfall
+        )
+        if repriced:
+            resolved = {
+                name: repriced.get(card.name.lower(), card) if card is not None else None
+                for name, card in resolved.items()
+            }
 
     # Build price data
     rows: list[tuple[str, str | None, str | None, str | None, bool]] = []
@@ -125,7 +141,10 @@ async def price_comparison(
         lines.append(summary)
 
         lines.append("")
-        lines.append("*Prices from Scryfall bulk data (updated daily)*")
+        lines.append(
+            "*Prices from Scryfall bulk data (updated daily); unpriced new printings "
+            "use the cheapest paper printing*"
+        )
 
     log.info("price_comparison.complete", cards=len(unique_cards), priced=found_count)
     data = {

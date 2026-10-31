@@ -201,8 +201,8 @@ List a user's public decks on Moxfield.
 | Field | Detail |
 |-------|--------|
 | Input | `username: str`, `format: str | None = None` |
-| Output | User's public decks with name, format, colors, card counts. Verifies user exists first. |
-| Backend | `MoxfieldClient.search_users()` + `MoxfieldClient.search_decks()` |
+| Output | User's public decks with name, format, colors, card counts. Verifies user exists first. Format filter applied to the listing. |
+| Backend | `MoxfieldClient.search_users()` + `MoxfieldClient.get_user_decks()` (falls back to `search_decks()` filtered by author if the listing endpoint is gone) |
 | Annotations | readOnly=true, idempotent=true, openWorld=true |
 | Tags | beta |
 
@@ -294,6 +294,8 @@ Get the estimated paper price for an archetype deck.
 ---
 
 ## Scryfall Bulk Data Backend (namespace: `bulk`)
+
+Bulk searches return matches most-played first (EDHREC rank ascending, unranked cards last), so `limit` keeps the staples. Workflow tools built on bulk search inherit this order.
 
 ### `bulk_card_lookup`
 Look up a Magic card by exact name using Scryfall bulk data. Rate-limit-free.
@@ -447,7 +449,7 @@ Compare 2-5 cards side-by-side for a specific commander deck.
 | Field | Detail |
 |-------|--------|
 | Input | `cards: list[str]` (2-5 card names), `commander_name: str` |
-| Output | Markdown comparison table with: name, mana cost, type, synergy, inclusion %, combo count, price for each card |
+| Output | Markdown comparison table with: name, mana cost, type, synergy, inclusion %, combo count, price for each card. Structured content carries the same per-card `synergy`, `inclusion`, `combo_count` (`combo_count_capped` at the 5-combo lookup cap) |
 | Backends | Scryfall (required) + Spellbook (required) + EDHREC (optional) |
 | Partial failure | Card not found propagates. EDHREC/Spellbook failures show "N/A" per card |
 | Progress | Reports progress (1/3 resolving, 2/3 fetching data, 3/3 formatting) |

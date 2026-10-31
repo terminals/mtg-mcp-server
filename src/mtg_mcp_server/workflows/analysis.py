@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 
 from mtg_mcp_server.services.base import ServiceError
+from mtg_mcp_server.types import Card
 from mtg_mcp_server.utils.mana import count_pips
 from mtg_mcp_server.workflows import WorkflowResult
 from mtg_mcp_server.workflows.deck import build_synergy_lookup
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
     from mtg_mcp_server.services.spellbook import SpellbookClient
     from mtg_mcp_server.types import (
         BracketEstimate,
-        Card,
         DecklistCombos,
         EDHRECCard,
         EDHRECCommanderData,
@@ -246,7 +246,7 @@ async def _resolve_cards(
     scryfall: ScryfallClient,
 ) -> tuple[list[_ResolvedCard], list[str]]:
     """Resolve all cards in the decklist using bulk-data-first fallback."""
-    from mtg_mcp_server.workflows.card_resolver import resolve_card
+    from mtg_mcp_server.workflows.card_resolver import fill_missing_prices, resolve_card
 
     # Cap concurrent Scryfall lookups to avoid overwhelming the connection pool.
     sem = asyncio.Semaphore(10)
@@ -258,6 +258,13 @@ async def _resolve_cards(
 
     tasks = [_bounded_resolve(name) for name in decklist]
     results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Bulk printings without a USD price (new or unreleased products) would
+    # drop staples from the budget; price them from a paper printing.
+    repriced = await fill_missing_prices(
+        [r for r in results if isinstance(r, Card)], scryfall=scryfall
+    )
+    results = [repriced.get(r.name.lower(), r) if isinstance(r, Card) else r for r in results]
 
     resolved: list[_ResolvedCard] = []
     failures: list[str] = []
@@ -390,7 +397,8 @@ def _compute_budget(
                 log.warning("compute_budget.bad_price", card=card.name, price=card.price_usd)
 
     avg = total / priced if priced > 0 else 0.0
-    return total, avg, priced
+    # Round away float noise (614.5399999...) in the structured output.
+    return round(total, 2), round(avg, 2), priced
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,10 @@ moxfield_mcp = FastMCP("Moxfield", lifespan=moxfield_lifespan, mask_error_detail
 
 log = structlog.get_logger(provider="moxfield")
 
+# Statuses meaning the per-user deck listing endpoint itself is gone, so the
+# tool falls back to deck search instead of failing.
+_USER_LISTING_GONE = frozenset({400, 404, 405, 410})
+
 
 def _get_client() -> MoxfieldClient:
     """Return the initialized client or raise if the lifespan hasn't started."""
@@ -340,7 +344,7 @@ async def user_decks(
 ) -> ToolResult:
     """List a user's public decks on Moxfield.
 
-    Verifies the user exists, then searches for their public decks.
+    Verifies the user exists, then fetches their public deck listing.
     Optionally filter by format.
     """
     client = _get_client()
@@ -361,14 +365,35 @@ async def user_decks(
     if matched_user is None:
         raise ToolError(f"User not found on Moxfield: '{username}'. Check the username spelling.")
 
-    # Step 2: Search decks by author
+    # Step 2: The user's own deck listing. Deck search can't filter by
+    # author (its text query matches deck names), so searching for the
+    # username found nothing; search is only a fallback if the listing
+    # endpoint disappears.
     try:
-        result = await client.search_decks(query=username, fmt=format)
+        result = await client.get_user_decks(matched_user.username)
     except MoxfieldError as exc:
-        raise ToolError(f"Moxfield API error: {exc}") from exc
+        if exc.status_code not in _USER_LISTING_GONE:
+            raise ToolError(f"Moxfield API error: {exc}") from exc
+        log.warning(
+            "user_decks.listing_unavailable",
+            username=matched_user.username,
+            status=exc.status_code,
+        )
+        try:
+            result = await client.search_decks(query=username, fmt=format)
+        except MoxfieldError as search_exc:
+            raise ToolError(f"Moxfield API error: {search_exc}") from search_exc
 
-    # Filter to only decks by this author (search may return partial matches)
-    user_deck_list = [d for d in result.decks if d.author.lower() == matched_user.username.lower()]
+    # Keep this author's decks (the search fallback returns anyone's) in the
+    # requested format.
+    author_lower = matched_user.username.lower()
+    fmt_lower = format.lower() if format else None
+    user_deck_list = [
+        d
+        for d in result.decks
+        if (not d.author or d.author.lower() == author_lower)
+        and (fmt_lower is None or d.format.lower() == fmt_lower)
+    ]
 
     # Build markdown output
     lines: list[str] = []

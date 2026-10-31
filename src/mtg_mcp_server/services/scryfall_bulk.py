@@ -80,6 +80,12 @@ class ScryfallBulkDownloadError(ScryfallBulkError):
     """Error downloading Scryfall bulk data (network or HTTP failure)."""
 
 
+def _popularity_key(card: Card) -> tuple[bool, int]:
+    """Sort key: ranked cards by EDHREC rank ascending, unranked cards last."""
+    rank = card.edhrec_rank
+    return (rank is None, rank if rank is not None else 0)
+
+
 class ScryfallBulkClient:
     """Manages Scryfall Oracle Cards bulk data with lazy download and refresh.
 
@@ -118,6 +124,12 @@ class ScryfallBulkClient:
         self._unique_cards: list[Card] = []
         self._loaded_at: float = 0.0  # monotonic timestamp; 0 = never loaded
 
+        # _unique_cards re-sorted most-played first (EDHREC rank), built
+        # lazily by _ranked_cards() and rebuilt whenever the card list changes.
+        self._ranked: list[Card] = []
+        self._ranked_source: list[Card] | None = None
+        self._ranked_len = -1
+
         # ETag for conditional download (HTTP 304 Not Modified)
         self._etag: str | None = None
         self._etag_url: str | None = None  # URL the ETag applies to
@@ -147,6 +159,9 @@ class ScryfallBulkClient:
 
         self._cards.clear()
         self._unique_cards.clear()
+        self._ranked = []
+        self._ranked_source = None
+        self._ranked_len = -1
         self._loaded_at = 0.0
 
     def start_preload(self) -> None:
@@ -258,12 +273,12 @@ class ScryfallBulkClient:
             limit: Maximum results to return.
 
         Returns:
-            Matching cards, up to ``limit``.
+            Matching cards, most-played first (EDHREC rank), up to ``limit``.
         """
         await self.ensure_loaded()
         query_lower = query.lower()
         results: list[Card] = []
-        for card in self._unique_cards:
+        for card in self._ranked_cards():
             if query_lower in card.name.lower():
                 results.append(card)
                 if len(results) >= limit:
@@ -278,12 +293,12 @@ class ScryfallBulkClient:
             limit: Maximum results to return.
 
         Returns:
-            Matching cards, up to ``limit``.
+            Matching cards, most-played first (EDHREC rank), up to ``limit``.
         """
         await self.ensure_loaded()
         query_lower = type_query.lower()
         results: list[Card] = []
-        for card in self._unique_cards:
+        for card in self._ranked_cards():
             if query_lower in card.type_line.lower():
                 results.append(card)
                 if len(results) >= limit:
@@ -298,12 +313,12 @@ class ScryfallBulkClient:
             limit: Maximum results to return.
 
         Returns:
-            Matching cards, up to ``limit``.
+            Matching cards, most-played first (EDHREC rank), up to ``limit``.
         """
         await self.ensure_loaded()
         query_lower = text_query.lower()
         results: list[Card] = []
-        for card in self._unique_cards:
+        for card in self._ranked_cards():
             oracle = card.oracle_text or ""
             if query_lower in oracle.lower():
                 results.append(card)
@@ -329,6 +344,10 @@ class ScryfallBulkClient:
     ) -> list[Card]:
         """Multi-criteria filter over all cards. Returns up to ``limit`` matches.
 
+        Matches come most-played first (EDHREC rank, unranked cards last), so a
+        small ``limit`` yields the staples rather than whatever the bulk file
+        happens to list first.
+
         All filter parameters are optional. Only cards matching **all** specified
         criteria are returned (AND logic). ``text_any`` is the exception: it uses
         OR logic among its terms.
@@ -348,7 +367,7 @@ class ScryfallBulkClient:
             limit: Maximum results to return.
 
         Returns:
-            Matching cards, up to ``limit``.
+            Matching cards, most-played first, up to ``limit``.
         """
         await self.ensure_loaded()
 
@@ -360,7 +379,7 @@ class ScryfallBulkClient:
         name_lower = name_contains.lower() if name_contains else None
 
         results: list[Card] = []
-        for card in self._unique_cards:
+        for card in self._ranked_cards():
             if format is not None and card.legalities.get(format) != "legal":
                 continue
             if color_identity is not None and not frozenset(card.color_identity).issubset(
@@ -405,6 +424,20 @@ class ScryfallBulkClient:
                 break
 
         return results
+
+    def _ranked_cards(self) -> list[Card]:
+        """Unique cards ordered most-played first (EDHREC rank ascending).
+
+        Cards without a rank keep their bulk-file order after every ranked
+        card (the sort is stable). Cached until the card list is replaced or
+        resized, so a refresh or a test swapping ``_unique_cards`` re-sorts.
+        """
+        source = self._unique_cards
+        if self._ranked_source is not source or self._ranked_len != len(source):
+            self._ranked = sorted(source, key=_popularity_key)
+            self._ranked_source = source
+            self._ranked_len = len(source)
+        return self._ranked
 
     async def cards_by_legality(self, format: str, status: str) -> list[Card]:
         """All cards with a specific legality status in a format.

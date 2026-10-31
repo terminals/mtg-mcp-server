@@ -8,17 +8,23 @@ from typing import TYPE_CHECKING
 import structlog
 
 from mtg_mcp_server.services.base import ServiceError
+from mtg_mcp_server.types import Card
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from mtg_mcp_server.services.scryfall import ScryfallClient
     from mtg_mcp_server.services.scryfall_bulk import ScryfallBulkClient
-    from mtg_mcp_server.types import Card
 
 log = structlog.get_logger(service="workflow.card_resolver")
 
 # Cap concurrent Scryfall fallback lookups to avoid overwhelming the
 # connection pool (mirrors deck_analysis's bound).
 _MAX_FALLBACK_CONCURRENCY = 10
+
+# Most Scryfall price lookups one call will make for unpriced bulk cards
+# (each is one rate-limited API request).
+_MAX_PRICE_LOOKUPS = 60
 
 
 async def resolve_card(
@@ -60,11 +66,67 @@ async def resolve_card(
     return await scryfall.get_card_by_name(name)
 
 
+async def fill_missing_prices(
+    cards: Iterable[Card],
+    *,
+    scryfall: ScryfallClient,
+    max_lookups: int = _MAX_PRICE_LOOKUPS,
+) -> dict[str, Card]:
+    """Look up USD prices for cards whose bulk printing has none.
+
+    Scryfall's Oracle bulk data carries one printing per card, often the
+    newest; a just-released printing has no market price yet, so staples
+    such as Sol Ring come back with ``prices.usd = None``. This asks
+    Scryfall for the cheapest priced paper printing of each such card
+    (concurrency-capped, at most ``max_lookups`` requests).
+
+    Args:
+        cards: Cards to check (cards that already have a USD price are skipped).
+        scryfall: Initialized ScryfallClient.
+        max_lookups: Upper bound on price requests.
+
+    Returns:
+        Mapping of lowercase card name to the re-priced Card, only for cards
+        that gained a USD price. Never raises.
+    """
+    unpriced: list[Card] = []
+    seen: set[str] = set()
+    for card in cards:
+        key = card.name.lower()
+        if card.prices.usd is None and key not in seen:
+            seen.add(key)
+            unpriced.append(card)
+    if not unpriced:
+        return {}
+    if len(unpriced) > max_lookups:
+        log.info("fill_missing_prices.capped", unpriced=len(unpriced), max_lookups=max_lookups)
+        unpriced = unpriced[:max_lookups]
+
+    sem = asyncio.Semaphore(_MAX_FALLBACK_CONCURRENCY)
+
+    async def _price(card: Card) -> Card | None:
+        async with sem:
+            try:
+                repriced = await scryfall.with_paper_price(card)
+            except ServiceError as exc:
+                log.warning("fill_missing_prices.failed", card=card.name, error=str(exc))
+                return None
+        if isinstance(repriced, Card) and repriced.prices.usd is not None:
+            return repriced
+        return None
+
+    results = await asyncio.gather(*(_price(card) for card in unpriced))
+    filled = {card.name.lower(): card for card in results if card is not None}
+    log.debug("fill_missing_prices.done", unpriced=len(unpriced), filled=len(filled))
+    return filled
+
+
 async def resolve_cards(
     names: list[str],
     *,
     bulk: ScryfallBulkClient | None,
     scryfall: ScryfallClient,
+    fill_prices: bool = False,
 ) -> dict[str, Card | None]:
     """Resolve many cards by name: bulk-data-first with Scryfall fallback.
 
@@ -79,6 +141,8 @@ async def resolve_cards(
         names: Card names to look up.
         bulk: Initialized ScryfallBulkClient, or None if disabled.
         scryfall: Initialized ScryfallClient (fallback source).
+        fill_prices: Also look up a USD price for bulk cards that lack one
+            (see :func:`fill_missing_prices`). Use it when prices matter.
 
     Returns:
         Dict mapping each input name (original casing preserved) to its
@@ -110,9 +174,17 @@ async def resolve_cards(
                     missing=len(missing),
                 )
 
+    if fill_prices:
+        bulk_hits = [card for name, card in resolved.items() if card is not None]
+        repriced = await fill_missing_prices(bulk_hits, scryfall=scryfall)
+        for name, card in resolved.items():
+            if card is not None and card.name.lower() in repriced:
+                resolved[name] = repriced[card.name.lower()]
+
     if not missing:
         return resolved
 
+    # Scryfall's get_card_by_name already fills paper prices itself.
     log.debug("resolve_cards.scryfall_fallback", count=len(missing))
     sem = asyncio.Semaphore(_MAX_FALLBACK_CONCURRENCY)
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 import structlog
 from cachetools import TTLCache
@@ -80,6 +81,8 @@ class MoxfieldClient(BaseClient):
     _search_cache: TTLCache = TTLCache(maxsize=50, ttl=3600)
     # 4h cache — user profiles rarely change.
     _user_search_cache: TTLCache = TTLCache(maxsize=100, ttl=14400)
+    # 1h cache — like search, a user's deck list changes as they publish.
+    _user_decks_cache: TTLCache = TTLCache(maxsize=50, ttl=3600)
 
     def __init__(
         self,
@@ -208,6 +211,45 @@ class MoxfieldClient(BaseClient):
             data = response.json()
         except (ValueError, UnicodeDecodeError) as exc:
             raise MoxfieldError("Moxfield returned invalid JSON for deck search") from exc
+
+        return self._parse_search_result(data)
+
+    @async_cached(_user_decks_cache)
+    async def get_user_decks(
+        self,
+        username: str,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> MoxfieldSearchResult:
+        """List a user's public decks.
+
+        ``/v2/decks/search`` has no author filter (its ``q`` matches deck
+        names only), so a user's decks come from the per-user listing, which
+        returns the same paginated deck-summary shape as search.
+
+        Args:
+            username: Exact Moxfield username.
+            page: Page number (1-indexed).
+            page_size: Results per page.
+
+        Returns:
+            Paginated deck summaries authored by the user.
+
+        Raises:
+            MoxfieldError: On API errors (404 when the user doesn't exist) or
+                invalid responses.
+        """
+        log.debug("get_user_decks", username=username, page=page)
+        params: dict[str, str | int] = {"pageNumber": page, "pageSize": page_size}
+        try:
+            response = await self._get(f"/v2/users/{quote(username, safe='')}/decks", params=params)
+        except ServiceError as exc:
+            raise MoxfieldError(exc.message, status_code=exc.status_code) from exc
+
+        try:
+            data = response.json()
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise MoxfieldError(f"Moxfield returned invalid JSON for {username}'s decks") from exc
 
         return self._parse_search_result(data)
 

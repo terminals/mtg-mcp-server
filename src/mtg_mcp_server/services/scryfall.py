@@ -6,11 +6,14 @@ retries, and Pydantic model parsing. All responses are cached via TTLCache.
 
 from __future__ import annotations
 
+import structlog
 from cachetools import TTLCache
 
 from mtg_mcp_server.services.base import DEFAULT_USER_AGENT, BaseClient, ServiceError
 from mtg_mcp_server.services.cache import _method_key, async_cached
-from mtg_mcp_server.types import Card, CardSearchResult, Ruling, SetInfo
+from mtg_mcp_server.types import Card, CardPrices, CardSearchResult, Ruling, SetInfo
+
+log = structlog.get_logger(service="scryfall")
 
 
 class ScryfallError(ServiceError):
@@ -40,6 +43,7 @@ class ScryfallClient(BaseClient):
     _search_cache: TTLCache = TTLCache(maxsize=100, ttl=3600)  # 1h
     _rulings_cache: TTLCache = TTLCache(maxsize=200, ttl=86400)  # 24h
     _sets_cache: TTLCache = TTLCache(maxsize=50, ttl=86400)  # 24h
+    _price_cache: TTLCache = TTLCache(maxsize=500, ttl=86400)  # 24h, prices update daily
 
     def __init__(
         self,
@@ -62,7 +66,9 @@ class ScryfallClient(BaseClient):
             fuzzy: If True, use Scryfall's fuzzy matching instead of exact.
 
         Returns:
-            Parsed Card model.
+            Parsed Card model. When the returned printing has no USD price
+            (new or digital-only printings), prices come from the cheapest
+            paper printing instead — see :meth:`with_paper_price`.
 
         Raises:
             CardNotFoundError: If no card matches the name.
@@ -75,7 +81,58 @@ class ScryfallClient(BaseClient):
             if exc.status_code == 404:
                 raise CardNotFoundError(f"Card not found: '{name}'", status_code=404) from exc
             raise ScryfallError(exc.message, status_code=exc.status_code) from exc
-        return Card.model_validate(response.json())
+        return await self.with_paper_price(Card.model_validate(response.json()))
+
+    @async_cached(_price_cache, key=_method_key)
+    async def get_paper_prices(self, name: str) -> CardPrices | None:
+        """Prices of the cheapest printing of a card that has a USD price.
+
+        Scryfall's default printing of a card is often its newest one, which
+        has no market price yet (e.g. a just-released Commander product), so
+        its ``prices.usd`` is null even for a $1 card like Sol Ring.
+
+        Args:
+            name: Exact card name.
+
+        Returns:
+            The cheapest USD-priced printing's prices, or None when no
+            printing has a USD price (digital-only cards).
+
+        Raises:
+            ScryfallError: On API errors other than "no match".
+        """
+        exact = name.replace('"', "")
+        try:
+            result = await self.search_cards(f'!"{exact}" usd>0 prefer:usd-low')
+        except CardNotFoundError:
+            return None
+        for card in result.data:
+            if card.prices.usd is not None:
+                return card.prices
+        return None
+
+    async def with_paper_price(self, card: Card) -> Card:
+        """Return ``card`` with a USD price filled from its cheapest paper printing.
+
+        Cards that already have a USD price are returned unchanged. Lookup
+        failures are logged and leave the card unchanged — a missing price
+        never fails the caller.
+        """
+        if card.prices.usd is not None:
+            return card
+        try:
+            prices = await self.get_paper_prices(card.name)
+        except ScryfallError as exc:
+            log.warning("paper_price.failed", card=card.name, error=str(exc))
+            return card
+        if prices is None:
+            return card
+        merged = CardPrices(
+            usd=prices.usd,
+            usd_foil=prices.usd_foil if prices.usd_foil is not None else card.prices.usd_foil,
+            eur=card.prices.eur if card.prices.eur is not None else prices.eur,
+        )
+        return card.model_copy(update={"prices": merged})
 
     @async_cached(_search_cache, key=_method_key)
     async def search_cards(self, query: str, page: int = 1) -> CardSearchResult:

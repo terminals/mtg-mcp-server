@@ -11,12 +11,14 @@ from typing import TYPE_CHECKING, Literal
 
 import structlog
 
+from mtg_mcp_server.services.base import ServiceError
 from mtg_mcp_server.utils.decklist import parse_decklist
 from mtg_mcp_server.utils.format_rules import normalize_format
 from mtg_mcp_server.utils.mana import count_pips, suggest_land_count
 from mtg_mcp_server.workflows import WorkflowResult
 
 if TYPE_CHECKING:
+    from mtg_mcp_server.services.scryfall import ScryfallClient
     from mtg_mcp_server.services.scryfall_bulk import ScryfallBulkClient
     from mtg_mcp_server.types import Card
 
@@ -29,6 +31,10 @@ _COLOR_NAMES: dict[str, str] = {
     "R": "Red",
     "G": "Green",
 }
+
+# Lands scanned (most-played first) when looking for duals, and duals shown.
+_DUAL_LAND_SEARCH_WINDOW = 300
+_MAX_DUAL_LANDS = 8
 
 _BASIC_LAND_FOR_COLOR: dict[str, str] = {
     "W": "Plains",
@@ -45,6 +51,7 @@ async def suggest_mana_base(
     *,
     total_lands: int | None = None,
     bulk: ScryfallBulkClient,
+    scryfall: ScryfallClient | None = None,
     response_format: Literal["detailed", "concise"] = "detailed",
 ) -> WorkflowResult:
     """Suggest a mana base based on color pip distribution.
@@ -58,6 +65,8 @@ async def suggest_mana_base(
         format: Format for legality checks (e.g. ``"commander"``).
         total_lands: Override the recommended total land count.
         bulk: Initialized ScryfallBulkClient.
+        scryfall: Optional ScryfallClient to price dual lands whose bulk
+            printing has no USD price yet.
 
     Returns:
         WorkflowResult with markdown and structured data.
@@ -144,19 +153,34 @@ async def suggest_mana_base(
     dual_lands: list[Card] = []
     if len(deck_colors) >= 2:
         try:
-            dual_lands = await bulk.filter_cards(
+            # Matches come most-played first. Most popular lands in an
+            # identity are colorless utility lands or mono-colored, so fetch
+            # a wide window and keep the multicolor ones.
+            land_pool = await bulk.filter_cards(
                 format=fmt,
                 type_contains=["Land"],
                 color_identity=frozenset(deck_colors),
-                limit=20,
+                limit=_DUAL_LAND_SEARCH_WINDOW,
             )
-        except Exception:
-            log.warning("suggest_mana_base.dual_land_search_failed", format=fmt)
-            dual_lands = []
-        # Filter to only dual/multi lands (must produce colored mana)
+        except ServiceError as exc:
+            log.warning(
+                "suggest_mana_base.dual_land_search_failed",
+                format=fmt,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            land_pool = []
+        # Keep lands tapping for 2+ of the deck's colors
         dual_lands = [
-            card for card in dual_lands if card.color_identity and len(card.color_identity) >= 2
-        ][:8]
+            card
+            for card in land_pool
+            if "Basic" not in card.type_line and len(card.color_identity) >= 2
+        ][:_MAX_DUAL_LANDS]
+        if scryfall is not None and dual_lands:
+            from mtg_mcp_server.workflows.card_resolver import fill_missing_prices
+
+            repriced = await fill_missing_prices(dual_lands, scryfall=scryfall)
+            dual_lands = [repriced.get(card.name.lower(), card) for card in dual_lands]
 
     # --- Heavy color warnings ---
     heavy_warnings: list[str] = []
@@ -181,6 +205,8 @@ async def suggest_mana_base(
         for land_name, count in sorted(basic_lands.items()):
             if count > 0:
                 lines.append(f"- {count}x {land_name}")
+        if dual_lands:
+            lines.append(f"Duals: {', '.join(card.name for card in dual_lands)}")
     else:
         # Pip distribution table
         if total_pips:

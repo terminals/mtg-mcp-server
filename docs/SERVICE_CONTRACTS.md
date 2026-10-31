@@ -27,6 +27,12 @@ API details, authentication, rate limits, and response shapes for each backend s
 ```
 Returns: Single card object. 404 if not found.
 
+The returned printing is Scryfall's default, which is often the newest one; a
+just-released printing has `prices.usd = null` even for staples. The client
+then fetches prices from the cheapest priced paper printing with one search,
+`!"<name>" usd>0 prefer:usd-low` (`ScryfallClient.get_paper_prices`, cached 24h).
+The same fallback prices bulk-data cards for price-sensitive workflows.
+
 **GET `/cards/search`** — Full Scryfall search syntax
 ```
 ?q=commander:sultai+type:creature&page=1
@@ -512,6 +518,17 @@ Parameters:
 - `filter` (str): Username or display name to search
 
 Returns: JSON with `data` array of user objects.
+
+**GET `/v2/users/{username}/decks`** — A user's public decks
+```
+?pageNumber=1&pageSize=100
+```
+Returns: the same paginated deck-summary shape as deck search (`data` array with
+`publicId`, `name`, `format`, `createdByUser`, ...). Used by `moxfield_user_decks`
+because deck search's `q` matches deck names only and has no author filter.
+Format filtering is applied client-side. The fixture
+`tests/fixtures/moxfield/user_decks.json` mirrors the search shape (Moxfield
+blocks capture from CI-style environments); recapture it when possible.
 
 ### Response Shape (Deck Search)
 

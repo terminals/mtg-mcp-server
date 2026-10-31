@@ -267,6 +267,15 @@ class TestCardComparison:
         assert "legalities" not in card_out
         assert "id" not in card_out
 
+        # Per-card comparison metrics carried into structured content
+        assert card_out["synergy"] == -0.05
+        assert card_out["inclusion"] == 95
+        assert card_out["combo_count"] == 1
+        assert card_out["combo_count_capped"] is False
+        frog_out = result.data["cards"][1]
+        assert frog_out["synergy"] == synergy_spore_frog.synergy
+        assert frog_out["combo_count"] == 2
+
         # Table header
         assert "Card Comparison" in result.markdown
         assert COMMANDER_NAME in result.markdown

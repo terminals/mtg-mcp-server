@@ -726,3 +726,143 @@ class TestCompleteDeck:
         )
 
         assert result.data["unresolved"] is not None
+
+
+class TestColorIdentityScoping:
+    """Suggestions stay inside the commander's / build-around's color identity."""
+
+    async def test_build_around_filters_by_card_identity(
+        self, mock_bulk: AsyncMock, mock_spellbook: AsyncMock
+    ) -> None:
+        """A W/B build-around only searches W/B (and colorless) cards."""
+        squall = _mock_card(
+            "Squall, SeeD Mercenary",
+            oracle_text="Return target permanent card from your graveyard to the battlefield.",
+            color_identity=["W", "B"],
+        )
+        mock_bulk.get_cards = AsyncMock(return_value={"Squall, SeeD Mercenary": squall})
+
+        await build_around(
+            ["Squall, SeeD Mercenary"], "commander", bulk=mock_bulk, spellbook=mock_spellbook
+        )
+
+        kwargs = mock_bulk.filter_cards.call_args.kwargs
+        assert kwargs["color_identity"] == frozenset({"W", "B"})
+
+    async def test_build_around_colorless_card_in_60_card_format_unrestricted(
+        self, mock_bulk: AsyncMock, mock_spellbook: AsyncMock
+    ) -> None:
+        """A colorless build-around in a 60-card format doesn't force colorless cards."""
+        relic = _mock_card("Relic", oracle_text="Exile target card from a graveyard.")
+        mock_bulk.get_cards = AsyncMock(return_value={"Relic": relic})
+
+        await build_around(["Relic"], "modern", bulk=mock_bulk, spellbook=mock_spellbook)
+
+        assert mock_bulk.filter_cards.call_args.kwargs["color_identity"] is None
+
+    async def test_build_around_ranks_by_shared_mechanics(
+        self, mock_bulk: AsyncMock, mock_spellbook: AsyncMock
+    ) -> None:
+        """Cards sharing more of the build-around's mechanics rank first."""
+        anchor = _mock_card(
+            "Anchor",
+            oracle_text="Sacrifice a creature: draw a card. Return it from your graveyard.",
+        )
+        one_match = _mock_card("One Match", oracle_text="Draw a card.")
+        three_match = _mock_card(
+            "Three Match", oracle_text="Sacrifice a creature, then draw from your graveyard."
+        )
+        mock_bulk.get_cards = AsyncMock(return_value={"Anchor": anchor})
+        mock_bulk.filter_cards = AsyncMock(return_value=[one_match, anchor, three_match])
+
+        result = await build_around(
+            ["Anchor"], "commander", bulk=mock_bulk, spellbook=mock_spellbook, limit=5
+        )
+
+        names = [c["name"] for c in result.data["synergy_cards"]]
+        assert names == ["Three Match", "One Match"]
+
+    async def test_complete_deck_uses_commander_identity(
+        self, mock_bulk: AsyncMock, mock_scryfall: AsyncMock
+    ) -> None:
+        """complete_deck searches inside the commander's identity and never suggests it."""
+        squall = _mock_card(
+            "Squall, SeeD Mercenary",
+            type_line="Legendary Creature - Human Knight",
+            color_identity=["W", "B"],
+        )
+        ring = _mock_card("Sol Ring", type_line="Artifact")
+        mock_bulk.get_cards = AsyncMock(
+            return_value={"Sol Ring": ring, "Squall, SeeD Mercenary": squall}
+        )
+        mock_bulk.filter_cards = AsyncMock(return_value=[squall, ring])
+
+        result = await complete_deck(
+            ["Sol Ring"],
+            "commander",
+            bulk=mock_bulk,
+            scryfall=mock_scryfall,
+            commander="Squall, SeeD Mercenary",
+        )
+
+        for call in mock_bulk.filter_cards.call_args_list:
+            assert call.kwargs["color_identity"] == frozenset({"W", "B"})
+        suggested = {n for names in result.data["suggestions"].values() for n in names}
+        assert "Squall, SeeD Mercenary" not in suggested
+        assert "Sol Ring" not in suggested
+        # Commander counts toward the 100
+        assert result.data["deck_size_current"] == 2
+        assert result.data["cards_needed"] == 98
+        assert result.data["commander"] == "Squall, SeeD Mercenary"
+
+    async def test_complete_deck_without_commander_uses_deck_identity(
+        self, mock_bulk: AsyncMock, mock_scryfall: AsyncMock
+    ) -> None:
+        """No commander: suggestions stay inside the deck's own identity."""
+        cards = {
+            "Swords to Plowshares": _mock_card("Swords to Plowshares", color_identity=["W"]),
+            "Animate Dead": _mock_card("Animate Dead", color_identity=["B"]),
+        }
+        mock_bulk.get_cards = AsyncMock(return_value=cards)
+
+        await complete_deck(list(cards), "commander", bulk=mock_bulk, scryfall=mock_scryfall)
+
+        assert mock_bulk.filter_cards.call_args.kwargs["color_identity"] == frozenset({"W", "B"})
+
+    async def test_complete_deck_drops_off_role_cards(
+        self, mock_bulk: AsyncMock, mock_scryfall: AsyncMock
+    ) -> None:
+        """Ramp suggestions skip lands; land suggestions skip basics."""
+        tower = _mock_card("Command Tower", type_line="Land", oracle_text="Add one mana.")
+        plains = _mock_card(
+            "Plains", type_line="Basic Land — Plains", oracle_text="({T}: Add {W}.)"
+        )
+        signet = _mock_card("Arcane Signet", type_line="Artifact", oracle_text="Add one mana.")
+        mock_bulk.get_cards = AsyncMock(return_value={"Card A": _mock_card("Card A")})
+        mock_bulk.filter_cards = AsyncMock(return_value=[tower, plains, signet])
+
+        result = await complete_deck(
+            ["Card A"], "commander", bulk=mock_bulk, scryfall=mock_scryfall
+        )
+
+        suggestions = result.data["suggestions"]
+        assert suggestions["ramp"] == ["Arcane Signet"]
+        assert suggestions["lands"] == ["Command Tower"]
+
+    async def test_complete_deck_concise_lists_suggestions(
+        self, mock_bulk: AsyncMock, mock_scryfall: AsyncMock
+    ) -> None:
+        """Concise output still names the suggested cards."""
+        signet = _mock_card("Arcane Signet", type_line="Artifact", oracle_text="Add one mana.")
+        mock_bulk.get_cards = AsyncMock(return_value={"Card A": _mock_card("Card A")})
+        mock_bulk.filter_cards = AsyncMock(return_value=[signet])
+
+        result = await complete_deck(
+            ["Card A"],
+            "commander",
+            bulk=mock_bulk,
+            scryfall=mock_scryfall,
+            response_format="concise",
+        )
+
+        assert "Ramp: Arcane Signet" in result.markdown

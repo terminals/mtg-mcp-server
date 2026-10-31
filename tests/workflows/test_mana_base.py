@@ -437,3 +437,50 @@ class TestSuggestManaBaseResponseFormat:
         assert "## Color Pip Distribution" not in concise.markdown
         assert "## Color Pip Distribution" in detailed.markdown
         assert isinstance(detailed.data, dict)
+
+
+class TestDualLandSelection:
+    """Dual land suggestions come from a wide most-played window."""
+
+    async def test_keeps_multicolor_lands_and_skips_basics(self) -> None:
+        """Colorless utility lands, mono lands and basics are skipped."""
+        spells: dict[str, Card | None] = {
+            "Swords": _make_card(name="Swords", mana_cost="{W}", color_identity=["W"]),
+            "Reanimate": _make_card(name="Reanimate", mana_cost="{B}", color_identity=["B"]),
+        }
+        pool = [
+            _make_card(name="Command Tower", type_line="Land"),
+            _make_card(name="Plains", type_line="Basic Land — Plains", color_identity=["W"]),
+            _make_card(
+                name="Godless Shrine", type_line="Land — Plains Swamp", color_identity=["W", "B"]
+            ),
+            _make_card(name="Castle Ardenvale", type_line="Land", color_identity=["W"]),
+            _make_card(name="Caves of Koilos", type_line="Land", color_identity=["W", "B"]),
+        ]
+        mock_bulk = _make_bulk(spells, filter_results=pool)
+
+        result = await suggest_mana_base(list(spells), "commander", bulk=mock_bulk)
+
+        assert isinstance(result.data, dict)
+        names = [d["name"] for d in result.data["dual_lands"]]
+        assert names == ["Godless Shrine", "Caves of Koilos"]
+        kwargs = mock_bulk.filter_cards.call_args.kwargs
+        assert kwargs["limit"] >= 100
+        assert kwargs["color_identity"] == frozenset({"W", "B"})
+
+    async def test_concise_names_duals(self) -> None:
+        """Concise output lists the dual lands too."""
+        spells: dict[str, Card | None] = {
+            "Swords": _make_card(name="Swords", mana_cost="{W}", color_identity=["W"]),
+            "Reanimate": _make_card(name="Reanimate", mana_cost="{B}", color_identity=["B"]),
+        }
+        pool = [
+            _make_card(name="Godless Shrine", type_line="Land", color_identity=["W", "B"]),
+        ]
+        mock_bulk = _make_bulk(spells, filter_results=pool)
+
+        result = await suggest_mana_base(
+            list(spells), "commander", bulk=mock_bulk, response_format="concise"
+        )
+
+        assert "Duals: Godless Shrine" in result.markdown

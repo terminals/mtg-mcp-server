@@ -403,6 +403,43 @@ def _extract_keywords_from_text(oracle_text: str) -> list[str]:
     return keywords
 
 
+# Formats where every card must sit inside the commander's color identity.
+_IDENTITY_FORMATS = frozenset({"commander", "brawl", "standardbrawl", "oathbreaker", "duel"})
+
+# build_around scans this many times ``limit`` popular matches before ranking.
+_SYNERGY_WINDOW_FACTOR = 5
+
+
+def _build_identity(cards: list[Card], format: str) -> frozenset[str] | None:
+    """Color identity suggestions must fit, from the cards being built around.
+
+    Singleton commander formats always restrict to the union of the cards'
+    identities (colorless included). Elsewhere the union is used only when
+    the cards have colors, so a colorless artifact doesn't limit a 60-card
+    deck to colorless suggestions.
+    """
+    if not cards:
+        return None
+    union = frozenset(color for card in cards for color in card.color_identity)
+    if format.lower() in _IDENTITY_FORMATS or union:
+        return union
+    return None
+
+
+def _rank_by_shared_terms(cards: list[Card], terms: list[str]) -> list[Card]:
+    """Order cards by how many ``terms`` their oracle text contains.
+
+    The sort is stable, so cards sharing the same count keep their incoming
+    (most-played first) order.
+    """
+
+    def _shared(card: Card) -> int:
+        oracle = (card.oracle_text or "").lower()
+        return sum(1 for term in terms if term in oracle)
+
+    return sorted(cards, key=_shared, reverse=True)
+
+
 async def build_around(
     cards: list[str],
     format: str,
@@ -453,20 +490,24 @@ async def build_around(
     # Deduplicate keywords
     unique_keywords = list(dict.fromkeys(all_keywords))
 
-    # Step 3: Search for synergistic cards
+    # Step 3: Search for synergistic cards inside the build-around cards'
+    # color identity (a W/B commander should not be offered blue cards).
+    ci_filter = _build_identity(resolved, format)
+    ba_names = {c.name.lower() for c in resolved}
     synergy_cards: list[Card] = []
     if unique_keywords:
-        # Search for cards with overlapping mechanics
-        synergy_cards = await bulk.filter_cards(
-            text_any=unique_keywords[:10],  # Cap to avoid overly broad search
+        search_terms = unique_keywords[:10]  # Cap to avoid overly broad search
+        # Matches come most-played first; take a wider window, then rank by
+        # how many of the build-around's mechanics each card shares.
+        candidates = await bulk.filter_cards(
+            text_any=search_terms,
+            color_identity=ci_filter,
             format=format,
             max_price=budget,
-            limit=limit,
+            limit=(limit + len(ba_names)) * _SYNERGY_WINDOW_FACTOR,
         )
-
-    # Remove build-around cards from results
-    ba_names = {c.name.lower() for c in resolved}
-    synergy_cards = [c for c in synergy_cards if c.name.lower() not in ba_names]
+        candidates = [c for c in candidates if c.name.lower() not in ba_names]
+        synergy_cards = _rank_by_shared_terms(candidates, search_terms)[:limit]
 
     # Step 4: Check Spellbook for combos
     combo_tasks = [spellbook.find_combos(name, limit=5) for name in cards]
@@ -590,6 +631,25 @@ _COMMANDER_RATIOS: dict[str, tuple[int, int]] = {
 }
 
 
+# Oracle text of mana abilities: "{T}: Add {C}{C}", "Add one mana of any color".
+_MANA_ABILITY_TEXT = ("add {", "add one mana", "add two mana", "add three mana")
+
+# Extra matches fetched per category beyond what will be shown.
+_SUGGESTION_SLACK = 60
+
+
+def _fits_category(card: Card, category: str) -> bool:
+    """Whether a search hit fills ``category`` the way the deck counts it.
+
+    A hit must categorize as the gap it is suggested for, so Command Tower
+    ("add {") isn't offered as ramp and Mind Stone isn't offered as card
+    draw. Land suggestions also skip basics (the mana base tool covers those).
+    """
+    if _categorize_card(card) != category:
+        return False
+    return category != "lands" or "Basic" not in card.type_line
+
+
 def _categorize_card(card: Card) -> str:
     """Categorize a card by its primary role."""
     type_lower = card.type_line.lower()
@@ -597,8 +657,10 @@ def _categorize_card(card: Card) -> str:
 
     if "land" in type_lower and "creature" not in type_lower:
         return "lands"
-    if any(t in oracle_lower for t in ["add {", "add one mana", "search your library for a"]) and (
-        "land" in oracle_lower or "mana" in oracle_lower
+    # Mana rocks/dorks ("{T}: Add {C}", "Add one mana of any color") and land
+    # fetchers are ramp; a plain tutor ("search your library for a card") isn't.
+    if any(t in oracle_lower for t in _MANA_ABILITY_TEXT) or (
+        "search your library for a" in oracle_lower and "land" in oracle_lower
     ):
         return "ramp"
     if any(t in oracle_lower for t in ["draw a card", "draw cards", "draw two", "draw three"]):
@@ -645,7 +707,9 @@ async def complete_deck(
         format: Format for target size and legality.
         bulk: Initialized ScryfallBulkClient.
         scryfall: Initialized ScryfallClient (fallback source).
-        commander: Commander name (unused currently, reserved for future enrichment).
+        commander: Commander name. When it resolves, suggestions stay inside its
+            color identity, it counts toward the deck size, and it is never
+            suggested. Without it, suggestions stay inside the deck's identity.
         budget: Optional max price per card.
         on_progress: Optional progress callback.
         response_format: Output verbosity.
@@ -662,16 +726,26 @@ async def complete_deck(
     # Step 1: Resolve all cards (bulk-data-first, Scryfall fallback per card)
     from mtg_mcp_server.workflows.card_resolver import resolve_cards
 
-    resolved_map = await resolve_cards(decklist, bulk=bulk, scryfall=scryfall)
+    lookup_names = [*decklist, commander] if commander else decklist
+    resolved_map = await resolve_cards(lookup_names, bulk=bulk, scryfall=scryfall)
     resolved: list[Card] = []
     unresolved: list[str] = []
 
+    commander_card = resolved_map.get(commander) if commander else None
+    commander_lower = commander_card.name.lower() if commander_card is not None else None
     for name in decklist:
         card = resolved_map.get(name)
-        if card is not None:
-            resolved.append(card)
-        else:
+        if card is None:
             unresolved.append(name)
+        elif card.name.lower() != commander_lower:
+            resolved.append(card)
+    if commander and commander_card is None:
+        unresolved.append(commander)
+
+    # Suggestions must fit the commander's color identity, or the identity
+    # the deck already shows when no commander is given.
+    identity_cards = [commander_card] if commander_card is not None else resolved
+    ci_filter = _build_identity(identity_cards, format)
 
     # Step 2: Categorize resolved cards
     if on_progress is not None:
@@ -683,7 +757,8 @@ async def complete_deck(
         categories.setdefault(cat, []).append(card)
 
     target_size = _TARGET_SIZES.get(format.lower(), 60)
-    cards_needed = max(0, target_size - len(resolved))
+    deck_size = len(resolved) + (1 if commander_card is not None else 0)
+    cards_needed = max(0, target_size - deck_size)
 
     # Step 3: Identify gaps and find suggestions
     if on_progress is not None:
@@ -699,6 +774,9 @@ async def complete_deck(
     # Search for suggestions in underrepresented categories
     suggestions: dict[str, list[Card]] = {}
     suggestions_degraded = False
+    existing_names = {c.name.lower() for c in resolved}
+    if commander_lower is not None:
+        existing_names.add(commander_lower)
     for cat, needed in gaps.items():
         cat_limit = min(needed + 3, 10)  # A few extra for variety
         fmt = format.lower()
@@ -707,7 +785,7 @@ async def complete_deck(
         cat_text_any: list[str] | None = None
         cat_type_contains: list[str] | None = None
         if cat == "ramp":
-            cat_text_any = ["add {", "search your library for a basic land"]
+            cat_text_any = [*_MANA_ABILITY_TEXT, "search your library for a basic land"]
         elif cat == "card_draw":
             cat_text_any = ["draw a card", "draw cards"]
         elif cat == "removal":
@@ -719,12 +797,15 @@ async def complete_deck(
 
         cat_suggestions = []
         try:
+            # Most-played first; over-fetch so cards already in the deck
+            # and off-role matches can be dropped without running short.
             cat_suggestions = await bulk.filter_cards(
                 text_any=cat_text_any,
                 type_contains=cat_type_contains,
+                color_identity=ci_filter,
                 format=fmt,
                 max_price=budget,
-                limit=cat_limit,
+                limit=cat_limit + len(existing_names) + _SUGGESTION_SLACK,
             )
         except ServiceError as exc:
             suggestions_degraded = True
@@ -735,11 +816,16 @@ async def complete_deck(
                 error_type=type(exc).__name__,
             )
             continue
-        # Exclude cards already in the deck
-        existing_names = {c.name.lower() for c in resolved}
-        cat_suggestions = [c for c in cat_suggestions if c.name.lower() not in existing_names]
+        # Exclude cards already in the deck or suggested for another gap,
+        # and cards that fill a different role
+        cat_suggestions = [
+            c
+            for c in cat_suggestions
+            if c.name.lower() not in existing_names and _fits_category(c, cat)
+        ][:cat_limit]
         if cat_suggestions:
             suggestions[cat] = cat_suggestions
+            existing_names.update(c.name.lower() for c in cat_suggestions)
 
     # Build output
     lines: list[str] = []
@@ -753,6 +839,9 @@ async def complete_deck(
             lines.append(f"Gaps: {', '.join(gap_parts)}")
         if unresolved:
             lines.append(f"Unresolved: {', '.join(unresolved)}")
+        for cat, cat_cards in suggestions.items():
+            label = cat.replace("_", " ").title()
+            lines.append(f"{label}: {', '.join(c.name for c in cat_cards[:5])}")
         if suggestions_degraded and not suggestions:
             lines.append(
                 "*Suggestions unavailable — bulk data offline; "
@@ -765,6 +854,8 @@ async def complete_deck(
 
         # Current status
         lines.append("## Current Deck")
+        if commander_card is not None:
+            lines.append(f"**Commander:** {commander_card.name}")
         lines.append(f"**Cards resolved:** {len(resolved)}/{len(decklist)}")
         lines.append(f"**Cards needed:** {cards_needed}")
         lines.append("")
@@ -820,7 +911,9 @@ async def complete_deck(
     )
     data: dict[str, object] = {
         "format": format,
-        "deck_size_current": len(resolved),
+        "commander": commander_card.name if commander_card is not None else None,
+        "color_identity": sorted(ci_filter) if ci_filter is not None else None,
+        "deck_size_current": deck_size,
         "target_size": target_size,
         "cards_needed": cards_needed,
         "categories": {cat: len(cards_list) for cat, cards_list in categories.items()},

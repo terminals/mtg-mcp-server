@@ -359,3 +359,37 @@ class TestPriceComparisonResponseFormat:
         assert "Total" not in concise.markdown
         assert "Total" in detailed.markdown
         assert isinstance(detailed.data, dict)
+
+
+class TestUnpricedBulkPrintings:
+    """Cards whose bulk printing has no USD price get a paper-printing price."""
+
+    async def test_fills_price_from_scryfall(self) -> None:
+        """A null bulk USD price is replaced by the cheapest paper printing's."""
+        unpriced = _make_card(name="Sol Ring")
+        priced = _make_card(name="Arcane Signet", prices=CardPrices(usd="0.40"))
+        bulk = _make_bulk({"Sol Ring": unpriced, "Arcane Signet": priced})
+        scryfall = AsyncMock()
+
+        async def _with_paper_price(card: Card) -> Card:
+            return card.model_copy(update={"prices": CardPrices(usd="1.23")})
+
+        scryfall.with_paper_price = AsyncMock(side_effect=_with_paper_price)
+
+        result = await price_comparison(["Sol Ring", "Arcane Signet"], bulk=bulk, scryfall=scryfall)
+
+        assert isinstance(result.data, dict)
+        prices = {c["name"]: c["usd"] for c in result.data["cards"]}
+        assert prices == {"Sol Ring": "1.23", "Arcane Signet": "0.40"}
+        # Only the unpriced card is looked up
+        scryfall.with_paper_price.assert_awaited_once()
+        assert result.data["total_usd"] == 1.63
+
+    async def test_without_scryfall_leaves_null(self) -> None:
+        """No Scryfall client: the null price stays N/A (bulk-only behavior)."""
+        bulk = _make_bulk({"Sol Ring": _make_card(name="Sol Ring")})
+
+        result = await price_comparison(["Sol Ring"], bulk=bulk)
+
+        assert isinstance(result.data, dict)
+        assert result.data["cards"][0]["usd"] is None

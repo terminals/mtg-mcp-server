@@ -603,7 +603,14 @@ async def card_comparison(
         "|------|-----------|------|---------|-------------|--------|-------|",
     ]
 
+    card_rows: list[dict[str, object]] = []
     for i, card in enumerate(card_data):
+        row = slim_card(card)
+        row["synergy"] = None
+        row["inclusion"] = None
+        row["combo_count"] = None
+        row["combo_count_capped"] = False
+
         # Extract mana cost and type
         mana_cost = getattr(card, "mana_cost", None) or "N/A"
         type_line = getattr(card, "type_line", "") or ""
@@ -622,6 +629,8 @@ async def card_comparison(
         elif syn_result is not None:
             synergy_str = _fmt_synergy(syn_result.synergy)
             inclusion_str = f"{syn_result.inclusion}%"
+            row["synergy"] = syn_result.synergy
+            row["inclusion"] = syn_result.inclusion
         else:
             synergy_str = "N/A"
             inclusion_str = "N/A"
@@ -638,6 +647,8 @@ async def card_comparison(
             combo_str = "N/A"
         else:
             combo_str = _fmt_combo_count(len(cmb_result))
+            row["combo_count"] = len(cmb_result)
+            row["combo_count_capped"] = len(cmb_result) >= _MAX_COMBOS
 
         price_str = f"${card.prices.usd}" if card.prices.usd is not None else "N/A"
 
@@ -645,6 +656,7 @@ async def card_comparison(
             f"| {card.name} | {mana_cost} | {type_line} | "
             f"{synergy_str} | {inclusion_str} | {combo_str} | {price_str} |"
         )
+        card_rows.append(row)
 
     # Data Sources footer — derive status from actual per-card results.
     # All exceptions = Failed; some exceptions = still OK (partial failure shown as N/A).
@@ -682,7 +694,7 @@ async def card_comparison(
     log.info("card_comparison.complete", cards=cards, commander=commander_name)
     data = {
         "commander_name": commander_name,
-        "cards": [slim_card(c) for c in card_data],
+        "cards": card_rows,
         "not_found": not_found_names,
     }
     return WorkflowResult(markdown="\n".join(lines), data=data)
@@ -771,7 +783,10 @@ async def budget_upgrade(
                 unique_cards.append(ecard)
         all_edhrec_cards = unique_cards
         resolved = await resolve_cards(
-            [ecard.name for ecard in all_edhrec_cards], bulk=bulk, scryfall=scryfall
+            [ecard.name for ecard in all_edhrec_cards],
+            bulk=bulk,
+            scryfall=scryfall,
+            fill_prices=True,
         )
         price_results = [resolved.get(ecard.name) for ecard in all_edhrec_cards]
     else:

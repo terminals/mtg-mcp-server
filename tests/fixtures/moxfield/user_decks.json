@@ -1,0 +1,70 @@
+{
+  "pageNumber": 1,
+  "pageSize": 100,
+  "totalResults": 3,
+  "totalPages": 1,
+  "data": [
+    {
+      "publicId": "p1deck0",
+      "name": "Mono-Blue Terror",
+      "format": "pauper",
+      "publicUrl": "https://www.moxfield.com/decks/p1deck0",
+      "createdByUser": {
+        "userName": "player1",
+        "displayName": "Player One",
+        "badges": [
+          "creator"
+        ]
+      },
+      "mainboardCount": 60,
+      "sideboardCount": 15,
+      "colors": [
+        "U"
+      ],
+      "createdAtUtc": "2026-01-15T10:00:00Z",
+      "lastUpdatedAtUtc": "2026-03-20T14:30:00Z"
+    },
+    {
+      "publicId": "p1deck1",
+      "name": "Squall Reanimator",
+      "format": "commander",
+      "publicUrl": "https://www.moxfield.com/decks/p1deck1",
+      "createdByUser": {
+        "userName": "player1",
+        "displayName": "Player One",
+        "badges": [
+          "creator"
+        ]
+      },
+      "mainboardCount": 99,
+      "sideboardCount": 0,
+      "colors": [
+        "W",
+        "B"
+      ],
+      "createdAtUtc": "2026-01-15T10:00:00Z",
+      "lastUpdatedAtUtc": "2026-03-20T14:30:00Z"
+    },
+    {
+      "publicId": "p1deck2",
+      "name": "Boros Energy",
+      "format": "modern",
+      "publicUrl": "https://www.moxfield.com/decks/p1deck2",
+      "createdByUser": {
+        "userName": "player1",
+        "displayName": "Player One",
+        "badges": [
+          "creator"
+        ]
+      },
+      "mainboardCount": 60,
+      "sideboardCount": 15,
+      "colors": [
+        "R",
+        "W"
+      ],
+      "createdAtUtc": "2026-01-15T10:00:00Z",
+      "lastUpdatedAtUtc": "2026-03-20T14:30:00Z"
+    }
+  ]
+}

@@ -993,6 +993,26 @@ class TestColorIdentityStaples:
 
         assert isinstance(result.data, dict)
 
+    async def test_asks_bulk_for_exactly_limit_most_played(self, mock_bulk: AsyncMock) -> None:
+        """Bulk search is already most-played first, so it asks for `limit` cards."""
+        mock_bulk.filter_cards = AsyncMock(return_value=[])
+
+        await color_identity_staples("WB", bulk=mock_bulk, limit=7)
+
+        kwargs = mock_bulk.filter_cards.call_args.kwargs
+        assert kwargs["limit"] == 7
+        assert kwargs["color_identity"] == frozenset({"W", "B"})
+
+    async def test_heading_keeps_letter_codes_uppercase(self, mock_bulk: AsyncMock) -> None:
+        """'WB' stays 'WB' in the heading; names are title-cased."""
+        mock_bulk.filter_cards = AsyncMock(return_value=[])
+
+        letters = await color_identity_staples("wb", bulk=mock_bulk)
+        named = await color_identity_staples("orzhov", bulk=mock_bulk)
+
+        assert letters.markdown.startswith("# WB Staples")
+        assert named.markdown.startswith("# Orzhov Staples")
+
     async def test_invalid_color_identity(self, mock_bulk: AsyncMock) -> None:
         """Invalid color identity returns an error message."""
         result = await color_identity_staples("invalidcolor", bulk=mock_bulk)

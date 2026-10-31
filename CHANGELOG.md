@@ -40,6 +40,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Spicerack requests send upper-case `event_format` values, as its API now documents.
 - `moxfield_search_decks` flags results that don't match `query`, since Moxfield's
   public search doesn't reliably filter by text.
+- **Bulk searches return staples first.** `filter_cards`, `search_cards`,
+  `search_by_type` and `search_by_text` yield matches by EDHREC rank (unranked
+  cards last) instead of bulk-file order, so a small `limit` gets popular cards.
+  Fixes `color_identity_staples` (it sorted only the first few file-order matches,
+  returning cards like Escape Tunnel and Ravnica at War for W/B),
+  `suggest_mana_base` (offered one obscure W/B dual; now Godless Shrine, Isolated
+  Chapel, Caves of Koilos...) and obscure picks in `suggest_sideboard`,
+  `theme_search` and the deck-building tools.
+- `complete_deck` and `build_around` keep suggestions inside the color identity:
+  the commander's when given (it also counts toward 100 and is never suggested),
+  otherwise the deck's or build-around cards'. `complete_deck` matches each
+  suggestion to the gap it fills (no Command Tower as ramp, no basics as lands, no
+  card twice), counts mana rocks like Sol Ring as ramp, and lists suggestions in
+  concise output. `build_around` ranks candidates by how many of the cards'
+  mechanics they share.
+- **Prices for unpriced printings.** Scryfall's default printing is often a new
+  product with no market price yet (3,500+ oracle cards, including Sol Ring,
+  Command Tower and Swiftfoot Boots), so prices showed as N/A and staples dropped
+  out of budgets. `scryfall_card_details`/`card_price` and every tool using
+  Scryfall lookups now fall back to the cheapest priced paper printing;
+  `price_comparison`, `deck_analysis`, `budget_upgrade`, `precon_upgrade` and
+  `suggest_mana_base` do the same for bulk-data cards.
+- `card_comparison` structured content includes each card's `synergy`,
+  `inclusion` and `combo_count` (plus `combo_count_capped`), not just the table.
+- `moxfield_user_decks` reads the user's deck listing (`/v2/users/{name}/decks`).
+  It searched deck names for the username, so it found no decks for nearly
+  everyone. Deck search remains a fallback if the listing endpoint goes away.
+- `color_identity_staples` headings keep letter codes upper-case ("WB Staples").
 
 - `suggest_sideboard` now filters sideboard candidates by the deck's color identity,
   preventing off-color recommendations. Colorless cards still pass the filter.

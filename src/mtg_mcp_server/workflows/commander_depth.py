@@ -750,7 +750,9 @@ async def precon_upgrade(
         from mtg_mcp_server.workflows.card_resolver import resolve_cards
 
         candidate_names = [e.name for e in all_staples[: num_upgrades * 3]]
-        price_map = await resolve_cards(candidate_names, bulk=bulk, scryfall=scryfall)
+        price_map = await resolve_cards(
+            candidate_names, bulk=bulk, scryfall=scryfall, fill_prices=True
+        )
         upgrade_candidates: list[tuple[EDHRECCard, float]] = []
         for ecard in all_staples[: num_upgrades * 3]:
             card_data = price_map.get(ecard.name)
@@ -943,19 +945,14 @@ async def color_identity_staples(
         if mapped is not None:
             type_contains = [mapped]
 
-    # Use filter_cards for a single efficient pass
-    cards = await bulk.filter_cards(
+    # filter_cards yields matches most-played first (EDHREC rank), so the
+    # first `limit` matches are the identity's top staples.
+    top_cards = await bulk.filter_cards(
         format="commander",
         color_identity=identity,
         type_contains=type_contains,
-        limit=limit * 5,  # Over-fetch to allow sorting
+        limit=limit,
     )
-
-    # Sort by edhrec_rank (lower = more popular). Cards without rank go last.
-    cards.sort(key=lambda c: c.edhrec_rank if c.edhrec_rank is not None else 999999)
-
-    # Take top `limit`
-    top_cards = cards[:limit]
 
     # Format output
     identity_str = ", ".join(sorted(identity)) if identity else "Colorless"
@@ -991,8 +988,11 @@ def _format_color_identity_staples(
 ) -> list[str]:
     """Format color identity staples output."""
     cat_label = f" ({category})" if category else ""
+    # "WB" -> "WB", "orzhov" -> "Orzhov", "mono-red" -> "Mono-Red"
+    stripped = input_identity.strip()
+    heading = stripped.upper() if set(stripped.upper()) <= set("WUBRGC") else stripped.title()
     lines: list[str] = [
-        f"# {input_identity.title()} Staples{cat_label}",
+        f"# {heading} Staples{cat_label}",
         f"*Color identity: {identity_str}*",
         "",
     ]

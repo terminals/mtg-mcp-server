@@ -20,6 +20,7 @@ from mtg_mcp_server.services.scryfall_bulk import (
     ScryfallBulkDownloadError,
     ScryfallBulkError,
 )
+from mtg_mcp_server.types import Card
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "scryfall_bulk"
 
@@ -1138,6 +1139,67 @@ class TestFilterCards:
         assert len(results) > 0
         for card in results:
             assert card.cmc <= 1.0
+
+
+def _ranked_card(name: str, rank: int | None) -> Card:
+    return Card(
+        id=f"id-{name}",
+        name=name,
+        type_line="Artifact",
+        oracle_text="Add {C}.",
+        edhrec_rank=rank,
+        legalities={"commander": "legal"},
+    )
+
+
+class TestPopularityOrder:
+    """Searches return the most-played (lowest EDHREC rank) cards first."""
+
+    @staticmethod
+    def _client(cards: list[Card]) -> ScryfallBulkClient:
+        client = ScryfallBulkClient()
+        client._unique_cards = cards
+        client._cards = {c.name.lower(): c for c in cards}
+        client._loaded_at = time.monotonic()
+        return client
+
+    async def test_filter_cards_limit_keeps_most_played(self):
+        """A small limit returns the top-ranked matches, not the first in file order."""
+        client = self._client(
+            [
+                _ranked_card("Obscure Rock", 30_000),
+                _ranked_card("Unranked Rock", None),
+                _ranked_card("Sol Ring", 1),
+                _ranked_card("Mind Stone", 32),
+            ]
+        )
+
+        results = await client.filter_cards(format="commander", limit=2)
+
+        assert [c.name for c in results] == ["Sol Ring", "Mind Stone"]
+
+    async def test_unranked_cards_last_in_file_order(self):
+        """Cards without a rank follow every ranked card, keeping file order."""
+        client = self._client(
+            [
+                _ranked_card("Unranked B", None),
+                _ranked_card("Ranked", 500),
+                _ranked_card("Unranked A", None),
+            ]
+        )
+
+        results = await client.search_by_text("add {c}", limit=10)
+
+        assert [c.name for c in results] == ["Ranked", "Unranked B", "Unranked A"]
+
+    async def test_order_rebuilt_when_cards_replaced(self):
+        """Swapping in a new card list (a refresh) re-sorts."""
+        client = self._client([_ranked_card("Old", 5)])
+        assert [c.name for c in await client.filter_cards()] == ["Old"]
+
+        client._unique_cards = [_ranked_card("New B", 9), _ranked_card("New A", 2)]
+
+        assert [c.name for c in await client.filter_cards()] == ["New A", "New B"]
 
 
 class TestCardsByLegality:

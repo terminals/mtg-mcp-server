@@ -1472,6 +1472,7 @@ async def suggest_mana_base(
             format,
             total_lands=total_lands,
             bulk=_require_bulk(),
+            scryfall=_scryfall,
             response_format=response_format,
         )
         return ToolResult(content=result.markdown, structured_content=result.data)
@@ -1506,6 +1507,7 @@ async def price_comparison(
         result = await impl(
             cards,
             bulk=_require_bulk(),
+            scryfall=_scryfall,
             response_format=response_format,
         )
         return ToolResult(content=result.markdown, structured_content=result.data)

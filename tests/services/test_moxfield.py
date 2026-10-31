@@ -22,6 +22,7 @@ def _clear_moxfield_cache():
     MoxfieldClient._deck_cache.clear()
     MoxfieldClient._search_cache.clear()
     MoxfieldClient._user_search_cache.clear()
+    MoxfieldClient._user_decks_cache.clear()
 
 
 def _load_fixture(name: str) -> dict:
@@ -526,6 +527,48 @@ class TestSearchDecks:
 
         assert len(result.decks) == 1
         assert result.decks[0].id == "valid"
+
+
+class TestGetUserDecks:
+    """Per-user public deck listing."""
+
+    @respx.mock
+    async def test_parses_listing(self):
+        """The listing parses into deck summaries by that author."""
+        respx.get(f"{BASE_URL}/v2/users/player1/decks").mock(
+            return_value=httpx.Response(200, json=_load_fixture("user_decks.json"))
+        )
+        async with MoxfieldClient(base_url=BASE_URL) as client:
+            result = await client.get_user_decks("player1")
+
+        assert result.total_results == 3
+        assert [d.id for d in result.decks] == ["p1deck0", "p1deck1", "p1deck2"]
+        assert {d.author for d in result.decks} == {"player1"}
+
+    @respx.mock
+    async def test_pagination_params_and_escaping(self):
+        """Paging params are sent and the username is path-escaped."""
+        route = respx.get(f"{BASE_URL}/v2/users/a%20b/decks").mock(
+            return_value=httpx.Response(200, json={"data": []})
+        )
+        async with MoxfieldClient(base_url=BASE_URL) as client:
+            await client.get_user_decks("a b", page=2, page_size=50)
+
+        url = str(route.calls[0].request.url)
+        assert "pageNumber=2" in url
+        assert "pageSize=50" in url
+
+    @respx.mock
+    async def test_not_found_keeps_status(self):
+        """A 404 raises MoxfieldError carrying the status code."""
+        respx.get(f"{BASE_URL}/v2/users/ghost/decks").mock(
+            return_value=httpx.Response(404, text="Not Found")
+        )
+        async with MoxfieldClient(base_url=BASE_URL) as client:
+            with pytest.raises(MoxfieldError) as exc_info:
+                await client.get_user_decks("ghost")
+
+        assert exc_info.value.status_code == 404
 
 
 class TestSearchUsers:

@@ -86,6 +86,83 @@ class TestGetCardByName:
         assert card.colors == ["R"]
 
 
+class TestPaperPriceFallback:
+    """A default printing without a USD price is priced from a paper printing."""
+
+    @staticmethod
+    def _unpriced_sol_ring() -> dict:
+        card = _load_fixture("card_sol_ring.json")
+        card["set"] = "trc"
+        card["prices"] = {"usd": None, "usd_foil": None, "eur": None}
+        return card
+
+    @staticmethod
+    def _priced_search(usd: str) -> dict:
+        printing = _load_fixture("card_sol_ring.json")
+        printing["set"] = "msc"
+        printing["prices"] = {"usd": usd, "usd_foil": "3.00", "eur": "1.10"}
+        return {"object": "list", "total_cards": 1, "has_more": False, "data": [printing]}
+
+    @respx.mock
+    async def test_named_lookup_fills_missing_usd(self):
+        """get_card_by_name keeps the card but takes prices from the cheapest priced printing."""
+        respx.get(f"{BASE_URL}/cards/named").mock(
+            return_value=httpx.Response(200, json=self._unpriced_sol_ring())
+        )
+        search = respx.get(f"{BASE_URL}/cards/search").mock(
+            return_value=httpx.Response(200, json=self._priced_search("1.23"))
+        )
+        async with ScryfallClient(base_url=BASE_URL) as client:
+            card = await client.get_card_by_name("Sol Ring")
+
+        assert card.set_code == "trc"
+        assert card.prices.usd == "1.23"
+        assert card.prices.usd_foil == "3.00"
+        query = search.calls[0].request.url.params["q"]
+        assert query == '!"Sol Ring" usd>0 prefer:usd-low'
+
+    @respx.mock
+    async def test_priced_card_skips_search(self):
+        """A card that already has a USD price makes no extra request."""
+        respx.get(f"{BASE_URL}/cards/named").mock(
+            return_value=httpx.Response(200, json=_load_fixture("card_sol_ring.json"))
+        )
+        search = respx.get(f"{BASE_URL}/cards/search").mock(
+            return_value=httpx.Response(200, json=self._priced_search("1.23"))
+        )
+        async with ScryfallClient(base_url=BASE_URL) as client:
+            await client.get_card_by_name("Sol Ring")
+
+        assert not search.called
+
+    @respx.mock
+    async def test_no_priced_printing_keeps_null(self):
+        """Digital-only cards (search 404) keep a null price without failing."""
+        respx.get(f"{BASE_URL}/cards/named").mock(
+            return_value=httpx.Response(200, json=self._unpriced_sol_ring())
+        )
+        respx.get(f"{BASE_URL}/cards/search").mock(
+            return_value=httpx.Response(404, json=_load_fixture("card_not_found.json"))
+        )
+        async with ScryfallClient(base_url=BASE_URL) as client:
+            card = await client.get_card_by_name("Sol Ring")
+
+        assert card.prices.usd is None
+
+    @respx.mock
+    async def test_price_lookup_error_keeps_card(self):
+        """A failing price search never fails the card lookup."""
+        respx.get(f"{BASE_URL}/cards/named").mock(
+            return_value=httpx.Response(200, json=self._unpriced_sol_ring())
+        )
+        respx.get(f"{BASE_URL}/cards/search").mock(return_value=httpx.Response(400, json={}))
+        async with ScryfallClient(base_url=BASE_URL) as client:
+            card = await client.get_card_by_name("Sol Ring")
+
+        assert card.name == "Sol Ring"
+        assert card.prices.usd is None
+
+
 class TestSearchCards:
     """Card search using Scryfall query syntax."""
 
