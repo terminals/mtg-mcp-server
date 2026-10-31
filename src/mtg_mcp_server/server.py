@@ -49,11 +49,10 @@ mcp = FastMCP(
         "Tool categories:\n"
         "- scryfall_*: Card search, details, prices, rulings (Scryfall API)\n"
         "- spellbook_*: Combo search, decklist analysis, bracket estimation (Commander Spellbook)\n"
-        "- draft_*: Draft card ratings and archetype stats (17Lands)\n"
+        "- draft_*: Draft colour-pair (archetype) win rates (17Lands)\n"
         "- edhrec_*: Commander staples and synergy scores (EDHREC, beta)\n"
         "- moxfield_*: Public decklist fetching and search (Moxfield, beta)\n"
         "- bulk_*: Rate-limit-free card lookup and search (Scryfall bulk data)\n"
-        "- spicerack_*: Tournament results and metagame data (Spicerack)\n"
         "- goldfish_*: Constructed metagame data (MTGGoldfish, beta)\n\n"
         "Workflow tools (no prefix):\n"
         "- commander_overview: Full commander profile from all sources\n"
@@ -61,8 +60,6 @@ mcp = FastMCP(
         "- card_comparison: Side-by-side comparison of 2-5 cards\n"
         "- budget_upgrade: Price-constrained upgrade suggestions\n"
         "- deck_analysis: Full decklist health check\n"
-        "- set_overview: Draft format card ratings overview and trap rares\n"
-        "- draft_pack_pick: Rank cards in a draft pack\n"
         "- suggest_cuts: Identify weakest cards to cut\n"
         "- deck_validate: Validate a decklist against format rules\n"
         "- suggest_mana_base: Suggest lands for a decklist\n"
@@ -105,9 +102,10 @@ except Exception:
 if _settings.disable_cache:
     disable_all_caches()
 
-# Feature-flagged backends: enabled by default but can be disabled via env vars.
+# Feature-flagged backends, toggled via MTG_MCP_ENABLE_* env vars.
 # 17Lands rate-limits aggressively; EDHREC scrapes undocumented endpoints;
 # Moxfield uses reverse-engineered API; Scryfall bulk data requires a ~30MB download.
+# Spicerack is off by default: its API refuses connections.
 if _settings.enable_17lands:
     mcp.mount(draft_mcp, namespace="draft")
 if _settings.enable_edhrec:
@@ -123,6 +121,28 @@ if _settings.enable_mtggoldfish:
 
 # Workflow tools mounted without namespace for clean names.
 mcp.mount(workflow_mcp)
+
+# 17Lands' public card endpoint returns no per-card win rates or pick data,
+# so everything built on it is hidden unless MTG_MCP_ENABLE_17LANDS_CARD_STATS
+# is set. Colour-pair win rates (draft_archetype_stats) still work and stay.
+SEVENTEEN_LANDS_CARD_STAT_COMPONENTS = frozenset(
+    {
+        # Tools
+        "draft_card_ratings",
+        "draft_pack_pick",
+        "set_overview",
+        "draft_signal_read",
+        "draft_log_review",
+        # Prompts
+        "draft_strategy",
+        "draft_review",
+        # Resource templates
+        "mtg://draft/draft/{set_code}/ratings",
+        "mtg://draft/{set_code}/signals",
+    }
+)
+if not (_settings.enable_17lands and _settings.enable_17lands_card_stats):
+    mcp.disable(names=set(SEVENTEEN_LANDS_CARD_STAT_COMPONENTS))
 
 # Per-tool limits for known heavy tools — tighter than the global ceiling.
 # These are safety nets; slim field sets and limit params in the tools themselves

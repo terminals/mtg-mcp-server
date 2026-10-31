@@ -9,8 +9,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+from fastmcp import Client
+
 if TYPE_CHECKING:
-    from fastmcp import Client
+    from collections.abc import AsyncIterator
+
+
+@pytest.fixture
+async def workflow_client() -> AsyncIterator[Client]:
+    """Client on the workflow server, where hidden 17Lands prompts still exist."""
+    from mtg_mcp_server.workflows.server import workflow_mcp
+
+    async with Client(transport=workflow_mcp) as client:
+        yield client
 
 
 # ---------------------------------------------------------------------------
@@ -27,14 +39,24 @@ class TestPromptRegistration:
         prompt_names = {p.name for p in prompts}
         assert "evaluate_commander_swap" in prompt_names
         assert "deck_health_check" in prompt_names
-        assert "draft_strategy" in prompt_names
         assert "find_upgrades" in prompt_names
+        assert "sealed_session" in prompt_names
 
     async def test_prompt_count(self, mcp_client: Client):
-        """Exactly 19 prompts registered on the workflow server."""
+        """17 prompts exposed; draft_strategy and draft_review hidden with 17Lands card stats."""
         prompts = await mcp_client.list_prompts()
-        # 4 original + 4 cross-format + 1 rules + 8 format workflow + 2 constructed metagame = 19
-        assert len(prompts) == 19
+        # 4 original + 4 cross-format + 1 rules + 8 format workflow + 2 constructed metagame
+        # = 19 registered, minus the two built on 17Lands card stats
+        names = {p.name for p in prompts}
+        assert len(prompts) == 17
+        assert not {"draft_strategy", "draft_review"} & names
+
+    async def test_sealed_session_uses_archetype_stats(self, mcp_client: Client):
+        """sealed_session points at colour-pair stats, not the hidden card-stat data."""
+        result = await mcp_client.get_prompt("sealed_session", arguments={"set_code": "FIN"})
+        text = result.messages[0].content.text
+        assert "draft_archetype_stats for FIN" in text
+        assert "GIH WR" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -129,9 +151,9 @@ class TestDeckHealthCheck:
 class TestDraftStrategy:
     """Test the draft_strategy prompt."""
 
-    async def test_returns_instructions(self, mcp_client: Client):
+    async def test_returns_instructions(self, workflow_client: Client):
         """Returns instructions referencing set code, set_overview tool, and GIH WR."""
-        result = await mcp_client.get_prompt(
+        result = await workflow_client.get_prompt(
             "draft_strategy",
             arguments={"set_code": "LCI"},
         )
@@ -140,9 +162,9 @@ class TestDraftStrategy:
         assert "set_overview" in text
         assert "GIH WR" in text
 
-    async def test_contains_draft_heuristics(self, mcp_client: Client):
+    async def test_contains_draft_heuristics(self, workflow_client: Client):
         """Prompt includes GIH WR threshold, ALSA, and IWD heuristics."""
-        result = await mcp_client.get_prompt(
+        result = await workflow_client.get_prompt(
             "draft_strategy",
             arguments={"set_code": "MKM"},
         )

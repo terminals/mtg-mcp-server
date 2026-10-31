@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Removed
+
+- **Dead data sources are switched off.** Checked October 2026; each returns with
+  one setting once its source answers again.
+  - Spicerack: api.spicerack.gg refuses connections. `MTG_MCP_ENABLE_SPICERACK` now
+    defaults to `false`, so its 3 tools and resource template are gone and
+    `metagame_snapshot`/`format_entry_guide` no longer try it.
+  - 17Lands per-card stats: the public card endpoint returns every card with no win
+    rates or pick data. New `MTG_MCP_ENABLE_17LANDS_CARD_STATS` (default `false`)
+    hides `draft_card_ratings`, `draft_pack_pick`, `set_overview`,
+    `draft_signal_read`, `draft_log_review`, the `draft_strategy` and `draft_review`
+    prompts and the ratings/signals resource templates. `sealed_pool_build` scores
+    heuristically without calling 17Lands. `draft_archetype_stats` (colour-pair win
+    rates) still works and stays; `sealed_session` now points at it.
+  - The server now exposes 61 tools, 17 prompts and 18 resources (was 69 / 19 / 21).
+
 ### Fixed
 
 - **Bulk data no longer crashes small hosted instances.** Scryfall's oracle bulk

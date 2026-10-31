@@ -128,7 +128,7 @@ Project is trusted; config lives in-repo and any pi session here picks it up aut
 
 | Server | Tools | Exposure | Purpose |
 |---|---|---|---|
-| `mtg` | 69 | codemode | This repo's own server — the system under development. Use for smoke tests/live verification |
+| `mtg` | 61 | codemode | This repo's own server — the system under development. Use for smoke tests/live verification |
 | `context7` | 2 | direct | Version-pinned library docs (FastMCP, Pydantic, httpx) |
 | `zai-vision` | 8 | deferred | Image analysis, screenshot OCR, diagram understanding, video |
 | `web-search-prime` | 1 | direct | Web search (real-time info, releases) |
@@ -188,6 +188,7 @@ Project is trusted; config lives in-repo and any pi session here picks it up aut
 - **Spicerack** (Tournament Results): Complete — SpicerackClient service with get_tournaments() (TTLCache 4h). 3 tools (recent_tournaments, tournament_results, format_decklists), 1 resource template.
 - **MTGGoldfish** (Metagame Data): Complete — MTGGoldfishClient service with HTML scraping (selectolax). 4 tools (metagame, archetype_list, format_staples, deck_price), 1 resource template. 60 tools total.
 - **v2.3.0** (Metagame + Sideboard + Moxfield): Complete — 4 metagame workflow tools (metagame_snapshot, archetype_decklist, archetype_comparison, format_entry_guide), 3 sideboard workflow tools (suggest_sideboard, sideboard_guide, sideboard_matrix), 2 Moxfield provider tools (search_decks, user_decks), fuzzy matching utility. 69 tools, 19 prompts. 1336 tests, 88% coverage.
+- **Fork, Oct 2026** (terminals/mtg-mcp-server): Spicerack off by default (`MTG_MCP_ENABLE_SPICERACK`, API refuses connections); 17Lands per-card stat tools and prompts hidden on the orchestrator (`MTG_MCP_ENABLE_17LANDS_CARD_STATS`, public endpoint returns no win rates; `draft_archetype_stats` stays). 61 tools, 17 prompts exposed.
 
 ## Environment
 

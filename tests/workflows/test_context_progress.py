@@ -13,11 +13,21 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastmcp import Client
 
 from mtg_mcp_server.workflows import WorkflowResult
 
 if TYPE_CHECKING:
-    from fastmcp import Client
+    from collections.abc import AsyncIterator
+
+
+@pytest.fixture
+async def workflow_client() -> AsyncIterator[Client]:
+    """Client on the workflow server, where hidden 17Lands tools still exist."""
+    from mtg_mcp_server.workflows.server import workflow_mcp
+
+    async with Client(transport=workflow_mcp) as client:
+        yield client
 
 
 @pytest.fixture
@@ -246,10 +256,10 @@ class TestSetOverviewValidation:
     def _stubs(self, _mock_draft_stubs):
         """Activate draft module stubs for this test class."""
 
-    async def test_17lands_disabled(self, mcp_client: Client):
+    async def test_17lands_disabled(self, workflow_client: Client):
         """Rejects set_overview when 17Lands client is not enabled."""
         with patch("mtg_mcp_server.workflows.server._seventeen_lands", None):
-            result = await mcp_client.call_tool(
+            result = await workflow_client.call_tool(
                 "set_overview",
                 {"set_code": "LCI"},
                 raise_on_error=False,
@@ -267,26 +277,24 @@ class TestNewToolsRegistered:
     """Verify all Phase 5 tools are registered."""
 
     async def test_new_tools_present(self, mcp_client: Client):
-        """All four Phase 5 tools present in the tool list."""
+        """Phase 5 tools present; set_overview is hidden with 17Lands card stats."""
         tools = await mcp_client.list_tools()
         tool_names = {t.name for t in tools}
         assert "card_comparison" in tool_names
         assert "budget_upgrade" in tool_names
         assert "deck_analysis" in tool_names
-        assert "set_overview" in tool_names
+        assert "set_overview" not in tool_names
 
     async def test_total_workflow_tool_count(self, mcp_client: Client):
-        """All 8 workflow tools are registered (4 original + 4 new)."""
+        """The 6 non-17Lands original + Phase 5 workflow tools are exposed."""
         tools = await mcp_client.list_tools()
         workflow_tools = {
             "commander_overview",
             "evaluate_upgrade",
-            "draft_pack_pick",
             "suggest_cuts",
             "card_comparison",
             "budget_upgrade",
             "deck_analysis",
-            "set_overview",
         }
         tool_names = {t.name for t in tools}
         for tool in workflow_tools:

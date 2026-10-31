@@ -59,7 +59,7 @@ Commander uses EDHREC rank (singleton format). Modern and Pauper auto-select tou
 
 ### 5. Draft / 17Lands
 
-`draft_card_ratings(set_code="FDN")` — expect card ratings with GIH WR data. If no data for FDN, try BLB, MKM, or OTJ.
+`draft_archetype_stats(set_code="FIN", start_date="2025-06-10", end_date="2025-08-10")` — expect colour-pair win rates (e.g. "Azorius (WU)"). This is the only 17Lands tool exposed: the public card endpoint returns no win rates, so the card-stat tools are hidden unless `MTG_MCP_ENABLE_17LANDS_CARD_STATS=true`.
 
 ### 6. EDHREC (may fail)
 
@@ -81,7 +81,7 @@ Commander uses EDHREC rank (singleton format). Modern and Pauper auto-select tou
 |------|----------|
 | `commander_overview(commander_name="Muldrotha, the Gravetide")` | Card header + combos section + data sources |
 | `evaluate_upgrade(card_name="Spore Frog", commander_name="Muldrotha, the Gravetide")` | Card details + synergy data |
-| `price_comparison(cards=["Lightning Bolt", "Counterspell"])` | USD prices for both cards (avoid Sol Ring — Oracle Cards printing lacks prices) |
+| `price_comparison(cards=["Lightning Bolt", "Sol Ring"])` | USD prices for both (Sol Ring's unpriced Oracle printing is priced from its cheapest paper printing) |
 | `deck_validate(decklist=["4 Lightning Bolt", "4 Sol Ring", "52 Island"], format="modern")` | INVALID — Sol Ring not modern-legal |
 
 ### 9. Deck Building Workflows (parallel batch)
@@ -102,11 +102,9 @@ Commander uses EDHREC rank (singleton format). Modern and Pauper auto-select tou
 
 MTGGoldfish scrapes HTML — SKIP on error, don't fail the overall test.
 
-### 11. Spicerack (sequential — need tournament ID from first call)
+### 11. Disabled backends (tool list check)
 
-1. `spicerack_recent_tournaments(format="Legacy", num_days=30)` — expect at least one tournament, format = "Legacy"
-2. `spicerack_tournament_results(tournament_id=<first ID from above>)` — expect standings with player names and records
-3. `spicerack_format_decklists(format="Legacy", num_days=30, limit=5)` — expect decklists with card text or Moxfield URLs
+The tool list must contain no `spicerack_*` tools (Spicerack's API refuses connections; off unless `MTG_MCP_ENABLE_SPICERACK=true`) and none of `draft_card_ratings`, `draft_pack_pick`, `set_overview`, `draft_signal_read`, `draft_log_review` (17Lands returns no card stats). If either flag is turned on, test those tools instead.
 
 ### 12. Moxfield (may fail — reverse-engineered API, parallel batch)
 
@@ -124,7 +122,7 @@ Moxfield uses undocumented endpoints; SKIP on error, don't fail the overall test
 2. `archetype_decklist(format="modern", archetype=<first T1 archetype from step 1>)` — expect mainboard + sideboard card list
 3. `format_entry_guide(format="modern")` — expect format rules, budget-sorted archetypes
 
-If MTGGoldfish unavailable, metagame_snapshot should fall back to Spicerack data. SKIP section on error.
+If MTGGoldfish is unavailable, metagame_snapshot returns a "no metagame data" message (the Spicerack fallback is off). SKIP section on error.
 
 ### 14. Sideboard Workflows (parallel batch)
 
@@ -167,13 +165,13 @@ Compare results from step 1 (`scryfall_card_details("Sol Ring")`) and step 2 (`b
 | Core Workflows | 4 | | | |
 | Deck Building | 4 | | | |
 | MTGGoldfish | 4 | | | |
-| Spicerack | 3 | | | |
+| Disabled backends | 1 | | | |
 | Moxfield | 3 | | | |
 | Metagame | 3 | | | |
 | Sideboard | 3 | | | |
 | Commander Depth | 2 | | | |
 | Consistency | 1 | | | |
-| **Total** | **47** | | | |
+| **Total** | **45** | | | |
 
 ### Failures
 [Details for each FAIL — what was expected vs actual]

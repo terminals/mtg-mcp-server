@@ -117,27 +117,47 @@ class TestSpellbookMounted:
 
 
 class TestSeventeenLandsMounted:
-    """Verify 17Lands tools appear with draft_ namespace on the orchestrator."""
+    """17Lands: colour-pair stats stay; per-card stat tools are hidden by default."""
 
-    async def test_namespaced_tools_appear(self, mcp_client: Client):
-        """Both 17Lands tools are listed with the draft_ namespace prefix."""
-        tools = await mcp_client.list_tools()
-        tool_names = {t.name for t in tools}
-        assert "draft_card_ratings" in tool_names
+    async def test_archetype_stats_listed_card_stats_hidden(self, mcp_client: Client):
+        """draft_archetype_stats is listed; every per-card stat component is not."""
+        from mtg_mcp_server.server import SEVENTEEN_LANDS_CARD_STAT_COMPONENTS
+
+        tool_names = {t.name for t in await mcp_client.list_tools()}
+        prompt_names = {p.name for p in await mcp_client.list_prompts()}
+        template_uris = {t.uriTemplate for t in await mcp_client.list_resource_templates()}
+
         assert "draft_archetype_stats" in tool_names
+        visible = tool_names | prompt_names | template_uris
+        assert not SEVENTEEN_LANDS_CARD_STAT_COMPONENTS & visible
+
+    async def test_hidden_card_stat_tool_cannot_be_called(self, mcp_client: Client):
+        """A hidden tool is unknown, not merely unlisted."""
+        result = await mcp_client.call_tool(
+            "draft_card_ratings", {"set_code": "LCI"}, raise_on_error=False
+        )
+        assert result.is_error
+        assert "unknown tool" in result.content[0].text.lower()
 
     @respx.mock
-    async def test_end_to_end_card_ratings(self, mcp_client: Client):
-        """Calling draft_card_ratings through the orchestrator returns rating data."""
-        fixture = _load_seventeen_lands_fixture("card_ratings_lci.json")
+    async def test_end_to_end_archetype_stats(self, mcp_client: Client):
+        """Calling draft_archetype_stats through the orchestrator returns colour-pair data."""
+        fixture = _load_seventeen_lands_fixture("color_ratings_lci.json")
         respx.get(
-            f"{SEVENTEEN_LANDS_BASE}/card_ratings/data",
-            params={"expansion": "LCI", "event_type": "PremierDraft"},
+            f"{SEVENTEEN_LANDS_BASE}/color_ratings/data",
+            params={
+                "expansion": "LCI",
+                "event_type": "PremierDraft",
+                "start_date": "2023-11-07",
+                "end_date": "2024-02-07",
+            },
         ).mock(return_value=httpx.Response(200, json=fixture))
 
-        result = await mcp_client.call_tool("draft_card_ratings", {"set_code": "LCI"})
-        text = result.content[0].text
-        assert len(text) > 0
+        result = await mcp_client.call_tool(
+            "draft_archetype_stats",
+            {"set_code": "LCI", "start_date": "2023-11-07", "end_date": "2024-02-07"},
+        )
+        assert "Azorius (WU)" in result.content[0].text
 
 
 class TestWorkflowsMounted:
@@ -149,7 +169,7 @@ class TestWorkflowsMounted:
         tool_names = {t.name for t in tools}
         assert "commander_overview" in tool_names
         assert "evaluate_upgrade" in tool_names
-        assert "draft_pack_pick" in tool_names
+        assert "sealed_pool_build" in tool_names
         assert "suggest_cuts" in tool_names
 
 
@@ -203,16 +223,22 @@ class TestMoxfieldMounted:
         assert "Sol Ring" in text
 
 
-class TestSpicerackMounted:
-    """Verify Spicerack tools appear with spicerack_ namespace on the orchestrator."""
+class TestSpicerackNotMounted:
+    """Spicerack's API refuses connections, so it is off by default."""
 
-    async def test_namespaced_tools_appear(self, mcp_client: Client):
-        """All three Spicerack tools are listed with the spicerack_ namespace prefix."""
-        tools = await mcp_client.list_tools()
-        tool_names = {t.name for t in tools}
-        assert "spicerack_recent_tournaments" in tool_names
-        assert "spicerack_tournament_results" in tool_names
-        assert "spicerack_format_decklists" in tool_names
+    async def test_no_spicerack_components(self, mcp_client: Client):
+        """No spicerack_ tool or Spicerack resource template is exposed."""
+        tool_names = {t.name for t in await mcp_client.list_tools()}
+        template_uris = {t.uriTemplate for t in await mcp_client.list_resource_templates()}
+
+        assert not {name for name in tool_names if name.startswith("spicerack_")}
+        assert not {uri for uri in template_uris if "spicerack" in uri}
+
+    def test_flag_defaults_off(self):
+        """MTG_MCP_ENABLE_SPICERACK defaults to false."""
+        from mtg_mcp_server.config import Settings
+
+        assert Settings.model_fields["enable_spicerack"].default is False
 
 
 class TestScryfallBulkMounted:
@@ -290,7 +316,7 @@ class TestServerMetadata:
         assert "edhrec_*" in server.instructions
         assert "moxfield_*" in server.instructions
         assert "bulk_*" in server.instructions
-        assert "spicerack_*" in server.instructions
+        assert "spicerack_*" not in server.instructions
         assert "Workflow" in server.instructions
 
     def test_server_name(self):
@@ -374,7 +400,8 @@ class TestToolSchemaCompleteness:
         """Server exposes the expected number of tools."""
         tools = await mcp_client.list_tools()
         tool_names = sorted(t.name for t in tools)
-        assert len(tools) == 69, f"Expected 69 tools, got {len(tools)}.\nTools: {tool_names}"
+        # 69 registered - 3 Spicerack (unmounted) - 5 hidden 17Lands card-stat tools
+        assert len(tools) == 61, f"Expected 61 tools, got {len(tools)}.\nTools: {tool_names}"
 
     async def test_no_context_parameter_exposed(self, mcp_client: Client):
         """No tool should expose 'ctx' (Context) as a user-visible parameter."""
@@ -399,8 +426,11 @@ class TestMiddlewareConfig:
         """Per-tool middleware tool names must match registered tools."""
         tools = await mcp_client.list_tools()
         tool_names = {t.name for t in tools}
+        from mtg_mcp_server.server import SEVENTEEN_LANDS_CARD_STAT_COMPONENTS
+
         heavy_tools = {"scryfall_search_cards", "draft_card_ratings", "edhrec_commander_staples"}
-        missing = heavy_tools - tool_names
+        # draft_card_ratings keeps its limit for when card stats are re-enabled
+        missing = heavy_tools - tool_names - SEVENTEEN_LANDS_CARD_STAT_COMPONENTS
         assert not missing, f"Middleware targets not registered as tools: {missing}"
 
 
@@ -424,7 +454,6 @@ class TestResourcePropagation:
             "rulings",  # Scryfall rulings
             "set/{code}",  # Scryfall set
             "combo/{combo_id}",  # Spellbook combo
-            "ratings",  # 17Lands ratings
             "staples",  # EDHREC staples
             "card-data/{name}",  # Scryfall bulk card-data
             "format/{format}",  # Bulk format resources
@@ -433,9 +462,7 @@ class TestResourcePropagation:
             "glossary/{term}",  # Rules glossary
             "theme/{theme}",  # Theme search
             "tribe/{tribe}",  # Tribal staples
-            "signals",  # Draft signals
             "moxfield/",  # Moxfield deck
-            "tournament/",  # Spicerack tournaments
             # rules/keywords and rules/sections are static (no URI params)
             # so they appear in list_resources(), not list_resource_templates()
         ]
@@ -446,10 +473,14 @@ class TestResourcePropagation:
             )
 
     async def test_resource_template_count(self, mcp_client: Client):
-        """At least 18 resource templates are registered (20 total minus 2 static)."""
+        """At least 16 resource templates are registered.
+
+        19 templates minus Spicerack's (unmounted) and 17Lands' ratings and
+        signals (hidden). rules/keywords and rules/sections are static resources.
+        """
         templates = await mcp_client.list_resource_templates()
-        assert len(templates) >= 18, (
-            f"Expected >= 18 resource templates, got {len(templates)}.\n"
+        assert len(templates) >= 16, (
+            f"Expected >= 16 resource templates, got {len(templates)}.\n"
             f"Templates: {[t.uriTemplate for t in templates]}"
         )
 
@@ -469,7 +500,6 @@ class TestPromptCompleteness:
         expected = {
             "evaluate_commander_swap",
             "deck_health_check",
-            "draft_strategy",
             "find_upgrades",
             "build_deck",
             "evaluate_collection",
@@ -481,7 +511,6 @@ class TestPromptCompleteness:
             "build_theme_deck",
             "upgrade_precon",
             "sealed_session",
-            "draft_review",
             "compare_commanders",
             "rotation_plan",
         }
@@ -518,11 +547,10 @@ class TestToolNamingConventions:
         backend_prefixes = {
             "scryfall_": ["scryfall_search_cards", "scryfall_card_details"],
             "spellbook_": ["spellbook_find_combos", "spellbook_combo_details"],
-            "draft_": ["draft_card_ratings", "draft_archetype_stats"],
+            "draft_": ["draft_archetype_stats"],
             "edhrec_": ["edhrec_commander_staples", "edhrec_card_synergy"],
             "moxfield_": ["moxfield_decklist", "moxfield_deck_info"],
             "bulk_": ["bulk_card_lookup", "bulk_card_search"],
-            "spicerack_": ["spicerack_recent_tournaments", "spicerack_tournament_results"],
         }
         for prefix, expected_tools in backend_prefixes.items():
             for tool_name in expected_tools:
@@ -540,8 +568,7 @@ class TestToolNamingConventions:
             "card_comparison",
             "budget_upgrade",
             "deck_analysis",
-            "set_overview",
-            "draft_pack_pick",
+            "sealed_pool_build",
             "suggest_cuts",
         ]
         for tool_name in workflow_tools:

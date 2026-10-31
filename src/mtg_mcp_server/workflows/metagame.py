@@ -274,8 +274,8 @@ async def metagame_snapshot(
     return WorkflowResult(
         markdown=(
             f"No metagame data available for {format}.\n\n"
-            "Enable MTGGoldfish (`MTG_MCP_ENABLE_MTGGOLDFISH=true`) or "
-            "Spicerack (`MTG_MCP_ENABLE_SPICERACK=true`) for metagame data."
+            "MTGGoldfish is the metagame source; enable it with "
+            "`MTG_MCP_ENABLE_MTGGOLDFISH=true` or retry if it is temporarily down."
         ),
         data={
             "format": format,

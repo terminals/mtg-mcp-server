@@ -9,13 +9,30 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from fastmcp import Client
+
 from mtg_mcp_server.services.base import ServiceError
 from mtg_mcp_server.services.scryfall import CardNotFoundError, ScryfallError
 from mtg_mcp_server.services.seventeen_lands import SeventeenLandsError
 from mtg_mcp_server.services.spellbook import SpellbookError
 
 if TYPE_CHECKING:
-    from fastmcp import Client
+    from collections.abc import AsyncIterator
+
+
+@pytest.fixture
+async def workflow_client() -> AsyncIterator[Client]:
+    """Client on the workflow server itself.
+
+    The orchestrator hides the 17Lands card-stat tools (17Lands' public
+    endpoint returns no win rates), but they stay registered here, so their
+    error handling is still tested.
+    """
+    from mtg_mcp_server.workflows.server import workflow_mcp
+
+    async with Client(transport=workflow_mcp) as client:
+        yield client
 
 
 # ---------------------------------------------------------------------------
@@ -32,8 +49,10 @@ class TestWorkflowToolsRegistered:
         tool_names = {t.name for t in tools}
         assert "commander_overview" in tool_names
         assert "evaluate_upgrade" in tool_names
-        assert "draft_pack_pick" in tool_names
+        assert "sealed_pool_build" in tool_names
         assert "suggest_cuts" in tool_names
+        # Hidden on the orchestrator while 17Lands returns no card stats
+        assert "draft_pack_pick" not in tool_names
 
 
 # ---------------------------------------------------------------------------
@@ -165,11 +184,11 @@ class TestDraftPackPickToolError:
 
     async def test_17lands_disabled_becomes_tool_error(
         self,
-        mcp_client: Client,
+        workflow_client: Client,
     ):
         """17Lands not enabled → ToolError with feature flag hint."""
         with patch("mtg_mcp_server.workflows.server._seventeen_lands", None):
-            result = await mcp_client.call_tool(
+            result = await workflow_client.call_tool(
                 "draft_pack_pick",
                 {"pack": ["Mulldrifter"], "set_code": "LRW"},
                 raise_on_error=False,
@@ -179,7 +198,7 @@ class TestDraftPackPickToolError:
 
     async def test_seventeen_lands_error_becomes_tool_error(
         self,
-        mcp_client: Client,
+        workflow_client: Client,
     ):
         """SeventeenLandsError → ToolError."""
         mock_17lands = AsyncMock()
@@ -188,7 +207,7 @@ class TestDraftPackPickToolError:
         )
 
         with patch("mtg_mcp_server.workflows.server._seventeen_lands", mock_17lands):
-            result = await mcp_client.call_tool(
+            result = await workflow_client.call_tool(
                 "draft_pack_pick",
                 {"pack": ["Mulldrifter"], "set_code": "LRW"},
                 raise_on_error=False,
@@ -435,10 +454,10 @@ class TestDeckAnalysisToolError:
 class TestSetOverviewToolError:
     """Verify set_overview converts service exceptions to ToolError."""
 
-    async def test_17lands_disabled_becomes_tool_error(self, mcp_client: Client):
+    async def test_17lands_disabled_becomes_tool_error(self, workflow_client: Client):
         """17Lands not enabled → ToolError."""
         with patch("mtg_mcp_server.workflows.server._seventeen_lands", None):
-            result = await mcp_client.call_tool(
+            result = await workflow_client.call_tool(
                 "set_overview",
                 {"set_code": "LCI"},
                 raise_on_error=False,
@@ -446,7 +465,7 @@ class TestSetOverviewToolError:
         assert result.is_error
         assert "not enabled" in result.content[0].text.lower()
 
-    async def test_service_error_becomes_tool_error(self, mcp_client: Client):
+    async def test_service_error_becomes_tool_error(self, workflow_client: Client):
         """SeventeenLandsError → ToolError with backend name."""
         mock_17lands = AsyncMock()
         mock_17lands.card_ratings = AsyncMock(
@@ -457,7 +476,7 @@ class TestSetOverviewToolError:
         )
 
         with patch("mtg_mcp_server.workflows.server._seventeen_lands", mock_17lands):
-            result = await mcp_client.call_tool(
+            result = await workflow_client.call_tool(
                 "set_overview",
                 {"set_code": "LCI"},
                 raise_on_error=False,

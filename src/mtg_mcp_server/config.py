@@ -48,9 +48,16 @@ class Settings(BaseSettings):
     # --- Feature flags ---
     # Optional backends can be disabled without code changes.
     enable_17lands: bool = True
+    # 17Lands' public card_ratings endpoint now returns every card with null
+    # win rates and pick data (Oct 2026), so the tools built on per-card
+    # stats are hidden. Colour-pair win rates (draft_archetype_stats) still
+    # work and stay. Set true to bring the card-stat tools back.
+    enable_17lands_card_stats: bool = False
     enable_edhrec: bool = True  # Behind flag — scrapes undocumented endpoints
     enable_moxfield: bool = True  # Behind flag — reverse-engineered API
-    enable_spicerack: bool = True  # Documented public API
+    # api.spicerack.gg refuses connections (Oct 2026), so its tools are
+    # unmounted and no workflow calls it. Set true once it answers again.
+    enable_spicerack: bool = False
     enable_mtggoldfish: bool = True  # Behind flag — scrapes HTML (no API)
     enable_bulk_data: bool = True  # Scryfall Oracle Cards bulk download (~30MB)
 

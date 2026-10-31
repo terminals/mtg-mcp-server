@@ -20,12 +20,14 @@ pytestmark = pytest.mark.integration
 class TestToolRegistration:
     """Verify the orchestrator exposes the expected tools."""
 
-    async def test_all_69_tools_registered(self, mcp_client: Client):
-        """The orchestrator exposes exactly 69 tools."""
+    async def test_all_61_tools_registered(self, mcp_client: Client):
+        """The orchestrator exposes exactly 61 tools."""
         tools = await mcp_client.list_tools()
         tool_names = sorted(t.name for t in tools)
-        # 1 ping + 6 scryfall + 4 spellbook + 2 draft + 2 edhrec + 4 moxfield + 3 spicerack + 4 goldfish + 9 bulk + 29 workflows + 5 rules = 69
-        assert len(tools) == 69, f"Expected 69 tools, got {len(tools)}.\nTools: {tool_names}"
+        # 1 ping + 6 scryfall + 4 spellbook + 1 draft + 2 edhrec + 4 moxfield + 4 goldfish
+        # + 9 bulk + 25 workflows + 5 rules = 61. Spicerack (3) is unmounted and
+        # 17Lands' card-stat tools (1 draft + 4 workflow) are hidden by default.
+        assert len(tools) == 61, f"Expected 61 tools, got {len(tools)}.\nTools: {tool_names}"
 
     async def test_no_mtgjson_tools(self, mcp_client: Client):
         """No tool names contain 'mtgjson' (replaced by Scryfall bulk data)."""
@@ -154,7 +156,8 @@ class TestNewPromptsE2E:
         assert "upgrade_precon" in names
         assert "explore_format" in names
         assert "build_constructed_deck" in names
-        assert len(prompts) == 19
+        # 19 registered - draft_strategy and draft_review (hidden with 17Lands card stats)
+        assert len(prompts) == 17
 
 
 class TestPing:

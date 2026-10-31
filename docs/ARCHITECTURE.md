@@ -25,7 +25,7 @@ Claude Code / claude.ai / any MCP client
               │ stdio (default) or streamable HTTP
               │
     ┌─────────▼──────────┐
-    │   MTG Orchestrator  │  ← FastMCP("MTG"), 69 tools, 19 prompts, 21 resources
+    │   MTG Orchestrator  │  ← FastMCP("MTG"), 61 tools, 17 prompts, 18 resources
     │                     │
     │  Workflow Tools:     │  ← Compose across backends (no namespace)
     │  Commander:          │  Draft/Limited:
@@ -75,7 +75,7 @@ Claude Code / claude.ai / any MCP client
     │  └─────────────┘    │
     │  ┌─────────────┐    │
     │  │  Spicerack   │────┼──► api.spicerack.gg
-    │  │  ns=spicerack│    │    Tournament results, standings
+    │  │  ns=spicerack│    │    Tournament results (off by default)
     │  └─────────────┘    │
     │  ┌─────────────┐    │
     │  │  MTGGoldfish │────┼──► mtggoldfish.com (HTML scraping)
@@ -83,6 +83,8 @@ Claude Code / claude.ai / any MCP client
     │  └─────────────┘    │
     └─────────────────────┘
 ```
+
+Hidden by default on this fork: `draft_pack_pick`, `set_overview`, `draft_signal_read`, `draft_log_review` and `draft_card_ratings` (17Lands returns no card stats), and every `spicerack_*` tool (API refuses connections). See the Decisions Log.
 
 ---
 
@@ -654,7 +656,8 @@ class Settings(BaseSettings):
     enable_17lands: bool = True
     enable_edhrec: bool = True  # Behind flag — scrapes undocumented endpoints
     enable_moxfield: bool = True  # Behind flag — reverse-engineered API
-    enable_spicerack: bool = True  # Documented public API
+    enable_17lands_card_stats: bool = False  # Public card endpoint returns no win rates
+    enable_spicerack: bool = False  # API refuses connections (Oct 2026)
     enable_bulk_data: bool = True  # Scryfall Oracle Cards bulk download (~30MB)
     disable_cache: bool = False
 
@@ -737,6 +740,8 @@ mise run check    # Runs lint + typecheck + test — all must pass
 | Smithery adapter | `smithery.py` | Smithery deployment support via adapter module |
 | Moxfield provider | Behind feature flag, `ns=moxfield` | Reverse-engineered API — fragile, can break without notice |
 | Spicerack provider | Behind feature flag, `ns=spicerack` | Documented public REST API for tournament results. Lowest-risk new data source. Optional `X-API-Key` for higher rate limits |
+| Spicerack off by default | `enable_spicerack=False` | api.spicerack.gg refuses connections (Oct 2026); provider unmounted and the metagame fallback skipped. Code kept so one env var restores it |
+| 17Lands card stats hidden | `mcp.disable()` on the orchestrator unless `enable_17lands_card_stats` | The public card endpoint returns every card with null win rates and pick data. Hides 5 tools, 2 prompts, 2 resource templates; `draft_archetype_stats` (colour pairs) still works and stays. Hidden at the orchestrator, so workflow-server tests still cover the code |
 | MTGGoldfish provider | Behind feature flag, `ns=goldfish` | HTML scraping (no API) with selectolax. Browser-like UA required. Follows EDHREC fragile-source pattern: feature flag, TAGS_BETA, aggressive caching, ToolError on failure |
 | HTML parsing dependency | selectolax | 10-50x faster than BeautifulSoup, tiny footprint. Added for MTGGoldfish HTML scraping. Only used in `services/mtggoldfish.py` |
 

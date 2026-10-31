@@ -114,7 +114,11 @@ Estimate the Commander bracket for a decklist based on its combo density.
 
 ## 17Lands Backend (namespace: `draft`)
 
+> **Hidden by default (Oct 2026).** 17Lands' public `card_ratings` endpoint returns every card with null win rates and pick data, so `draft_card_ratings`, the workflow tools `draft_pack_pick`, `set_overview`, `draft_signal_read`, `draft_log_review`, the `draft_strategy`/`draft_review` prompts and the `mtg://draft/.../ratings` and `.../signals` templates are hidden on the orchestrator. `draft_archetype_stats` works and stays. `MTG_MCP_ENABLE_17LANDS_CARD_STATS=true` brings the rest back.
+
 ### `draft_card_ratings`
+*Hidden by default — see the 17Lands Backend note.*
+
 Get win rate and draft data for cards in a set.
 
 | Field | Detail |
@@ -209,6 +213,8 @@ List a user's public decks on Moxfield.
 ---
 
 ## Spicerack Backend (namespace: `spicerack`)
+
+> **Off by default (Oct 2026).** api.spicerack.gg refuses connections, so the provider is not mounted and `metagame_snapshot`/`format_entry_guide` skip it. `MTG_MCP_ENABLE_SPICERACK=true` restores it.
 
 ### `spicerack_recent_tournaments`
 List recent tournaments for a competitive format.
@@ -422,6 +428,8 @@ Assess whether a card is worth adding to a specific commander deck.
 | Annotations | readOnly=true, idempotent=true, openWorld=true |
 
 ### `draft_pack_pick`
+*Hidden by default — see the 17Lands Backend note.*
+
 Rank cards in a draft pack using 17Lands data.
 
 | Field | Detail |
@@ -481,6 +489,8 @@ Full decklist health check — mana curve, colors, combos, bracket, budget, syne
 | Annotations | readOnly=true, idempotent=true, openWorld=true |
 
 ### `set_overview`
+*Hidden by default — see the 17Lands Backend note.*
+
 Draft format overview — top commons/uncommons and trap rares.
 
 | Field | Detail |
@@ -573,12 +583,14 @@ Suggest the best 40-card sealed deck builds from a card pool.
 |-------|--------|
 | Input | `pool: list[str]` (card names, typically 84-90), `set_code: str` |
 | Output | Markdown with: top 1-3 two-color builds ranked by total score, per-build card list grouped by type, mana curve, removal/bomb counts |
-| Backends | Bulk data (required) + 17Lands (optional, for GIH WR scoring) |
-| Scoring | GIH WR when available, heuristic fallback (rarity + bomb/removal detection) |
+| Backends | Bulk data (required) + 17Lands (only when `MTG_MCP_ENABLE_17LANDS_CARD_STATS=true`) |
+| Scoring | Heuristic (rarity + bomb/removal detection); GIH WR when 17Lands card stats are enabled |
 | Progress | Reports progress (1/3 resolving, 2/3 evaluating pairs, 3/3 formatting) |
 | Annotations | readOnly=true, idempotent=true, openWorld=true |
 
 ### `draft_signal_read`
+*Hidden by default — see the 17Lands Backend note.*
+
 Analyze draft picks to detect open color signals and recommend direction.
 
 | Field | Detail |
@@ -590,6 +602,8 @@ Analyze draft picks to detect open color signals and recommend direction.
 | Annotations | readOnly=true, idempotent=true, openWorld=true |
 
 ### `draft_log_review`
+*Hidden by default — see the 17Lands Backend note.*
+
 Review a completed draft — pick-by-pick GIH WR analysis with overall grade.
 
 | Field | Detail |
@@ -618,8 +632,8 @@ Get the current metagame breakdown for a competitive format with tier assignment
 |-------|--------|
 | Input | `format: str`, `response_format: "detailed" \| "concise" = "detailed"` |
 | Output | Markdown with: tiered archetype list (T1 >10%, T2 3-10%, T3 <3%), meta shares, deck counts, prices |
-| Backends | MTGGoldfish (primary) + Spicerack (fallback) |
-| Partial failure | MTGGoldfish unavailable → falls back to Spicerack tournament frequency. Neither → error message |
+| Backends | MTGGoldfish (primary) + Spicerack (fallback, off by default) |
+| Partial failure | MTGGoldfish unavailable → Spicerack tournament frequency when enabled, otherwise an error message |
 | Annotations | readOnly=true, idempotent=true, openWorld=true |
 
 ### `archetype_decklist`
@@ -793,6 +807,8 @@ Guide a comprehensive deck health assessment.
 | Output | Multi-step prompt: run `deck_analysis` with full decklist, run `suggest_cuts`, analyze mana curve/colors/bracket, provide prioritized recommendations |
 
 ### `draft_strategy`
+*Hidden by default — see the 17Lands Backend note.*
+
 Guide a draft format preparation session.
 
 | Field | Detail |
@@ -886,9 +902,11 @@ Guide a sealed deck building session.
 | Field | Detail |
 |-------|--------|
 | Input | `set_code: str` |
-| Output | Multi-step prompt: sealed_pool_build → build evaluation with 17Lands data → sideboard planning |
+| Output | Multi-step prompt: sealed_pool_build → build evaluation → `draft_archetype_stats` for the colour pair → sideboard planning |
 
 ### `draft_review`
+*Hidden by default — see the 17Lands Backend note.*
+
 Review a completed draft with analysis and grade.
 
 | Field | Detail |
@@ -968,6 +986,8 @@ Resources provide cached data access via URI templates. Each returns JSON for pr
 
 ### Spicerack Resources
 
+*Off by default with the Spicerack provider.*
+
 | URI | Description |
 |-----|-------------|
 | `mtg://tournament/{event_format}/recent` | Recent tournaments for a format as JSON |
@@ -1003,4 +1023,4 @@ Resources provide cached data access via URI templates. Each returns JSON for pr
 |-----|-------------|
 | `mtg://theme/{theme}` | Cards matching a theme (oracle text patterns) |
 | `mtg://tribe/{tribe}/staples` | Staple cards for a creature type |
-| `mtg://draft/{set_code}/signals` | Draft color openness signals for a set |
+| `mtg://draft/{set_code}/signals` | Draft color openness signals for a set (hidden by default with 17Lands card stats) |

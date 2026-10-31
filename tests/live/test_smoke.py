@@ -22,9 +22,10 @@ class TestServerHealth:
     async def test_all_tools_registered(self, live_client):
         tools = await live_client.list_tools()
         tool_names = {t.name for t in tools}
-        # 1 ping + 6 scryfall + 4 spellbook + 2 draft + 2 edhrec + 4 moxfield + 3 spicerack + 4 goldfish + 9 bulk + 29 workflows + 5 rules = 69
-        assert len(tool_names) == 69, (
-            f"Expected 69 tools, got {len(tool_names)}: {sorted(tool_names)}"
+        # 1 ping + 6 scryfall + 4 spellbook + 1 draft + 2 edhrec + 4 moxfield + 4 goldfish
+        # + 9 bulk + 25 workflows + 5 rules = 61 (Spicerack off, 17Lands card stats hidden)
+        assert len(tool_names) == 61, (
+            f"Expected 61 tools, got {len(tool_names)}: {sorted(tool_names)}"
         )
 
     async def test_no_mtgjson_tools(self, live_client):
@@ -33,15 +34,19 @@ class TestServerHealth:
         assert mtgjson_tools == [], f"Unexpected MTGJSON tools: {mtgjson_tools}"
 
 
-class TestSpicerackLive:
-    """Hit the real Spicerack API."""
+class TestSeventeenLandsLive:
+    """Hit the real 17Lands colour-pair endpoint (the one that still returns data).
 
-    async def test_recent_tournaments(self, live_client):
+    Spicerack has no live test while its API refuses connections and the
+    provider is off by default (MTG_MCP_ENABLE_SPICERACK).
+    """
+
+    async def test_archetype_stats(self, live_client):
         result = await live_client.call_tool(
-            "spicerack_recent_tournaments", {"format": "Legacy", "num_days": 30}
+            "draft_archetype_stats",
+            {"set_code": "FIN", "start_date": "2025-06-10", "end_date": "2025-08-10"},
         )
-        text = result.content[0].text
-        assert "Legacy" in text
+        assert "Azorius (WU)" in result.content[0].text
 
 
 class TestBulkDataLive:

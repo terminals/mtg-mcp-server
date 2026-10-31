@@ -12,7 +12,7 @@
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-69 tools, 19 prompts, and 21 resources that give AI assistants deep access to Magic: The Gathering -- card data, combos, draft analytics, Commander metagame, competitive constructed, sideboard strategy, deck building, rules engine, and more. Works with Claude Code, Claude Desktop, or any MCP client.
+61 tools, 17 prompts, and 18 resources that give AI assistants deep access to Magic: The Gathering -- card data, combos, draft analytics, Commander metagame, competitive constructed, sideboard strategy, deck building, rules engine, and more. Works with Claude Code, Claude Desktop, or any MCP client.
 
 > Built on data from [Scryfall](https://scryfall.com), [Commander Spellbook](https://commanderspellbook.com), [17Lands](https://www.17lands.com), [EDHREC](https://edhrec.com), [Moxfield](https://www.moxfield.com), [Spicerack](https://spicerack.gg), and [MTGGoldfish](https://www.mtggoldfish.com). See [Data Sources & Attribution](#data-sources--attribution) for details and usage terms.
 
@@ -21,7 +21,7 @@
 - [What You Can Do](#what-you-can-do) — example prompts and real tool output
 - [Install](#install) — hosted, Claude Code, Claude Desktop, PyPI, development
 - [Configuration](#configuration) — environment variables and feature flags
-- [Tools](#tools) — all 69 tools across 13 domains
+- [Tools](#tools) — all 61 tools across 12 domains
 - [Architecture](#architecture) — FastMCP 3.x mount system
 - [Stack](#stack) — Python 3.12+, FastMCP, httpx, Pydantic
 - [Development](#development) — mise commands for testing, linting, typechecking
@@ -39,8 +39,7 @@ Ask your AI assistant questions like these and it will use the MTG tools automat
 - "Compare Muldrotha vs Meren vs Karador as graveyard commanders"
 
 **Draft & Limited**
-- "What are the best commons in Foundations for draft?"
-- "Rank these cards for my draft pack: Bitter Triumph, Monstrous Rage, Torch the Tower"
+- "Which color pairs won most in Final Fantasy draft?"
 - "Build a sealed deck from this pool: [list]"
 
 **Deck Building**
@@ -75,21 +74,6 @@ Top Staples:
   Muldrotha           Spore Frog (+53%), Sakura-Tribe Elder (+36%), Eternal Witness (+27%)
   Meren               Spore Frog (+70%), Sakura-Tribe Elder (+55%), Viscera Seer (+52%)
   Karador             Karmic Guide (+51%), Satyr Wayfinder (+49%), Sun Titan (+48%)
-```
-
-> "What are the best commons in Foundations for draft?"
-
-```
-Foundations (FDN) — PremierDraft · Median GIH WR: 54.7%
-
-Rank  Card               Color  GIH WR   ALSA   IWD      Games
-1     Bake into a Pie    B      58.4%    3.1    +5.3%    354,741
-2     Burst Lightning    R      58.2%    3.3    +3.0%    338,888
-3     Refute             U      58.1%    5.3    +4.3%    321,280
-4     Stab               B      57.9%    3.4    +4.5%    376,569
-5     Dazzling Angel     W      57.8%    3.2    +2.4%    317,648
-
-Trap rares: Doubling Season (39.4%), Thousand-Year Storm (35.2%) ...
 ```
 
 More examples with real tool output in the [Cookbook](docs/COOKBOOK.md).
@@ -189,6 +173,8 @@ All settings use `MTG_MCP_` environment variables. Everything works out of the b
 # Feature flags for optional backends
 MTG_MCP_ENABLE_EDHREC=false       # EDHREC (scrapes undocumented endpoints)
 MTG_MCP_ENABLE_17LANDS=false      # 17Lands (rate-limits aggressively)
+MTG_MCP_ENABLE_17LANDS_CARD_STATS=true  # Off by default: 17Lands returns no card win rates
+MTG_MCP_ENABLE_SPICERACK=true     # Off by default: Spicerack's API refuses connections
 MTG_MCP_ENABLE_BULK_DATA=false    # Scryfall bulk data (~30MB download on first use)
 MTG_MCP_ENABLE_RULES=false        # Comprehensive Rules engine
 
@@ -200,7 +186,7 @@ See `.env.example` for all available options including base URLs, rate limits, a
 
 ## Tools
 
-69 tools across 13 domains. See [docs/TOOL_DESIGN.md](docs/TOOL_DESIGN.md) for full input/output details.
+61 tools across 12 domains. See [docs/TOOL_DESIGN.md](docs/TOOL_DESIGN.md) for full input/output details. Eight more are [switched off](#switched-off-tools) because their data sources stopped answering.
 
 ### Card Data (`scryfall_*`)
 
@@ -240,8 +226,7 @@ See `.env.example` for all available options including base URLs, rate limits, a
 
 | Tool | Description |
 |------|-------------|
-| `card_ratings` | Win rates and draft data for cards in a set (17Lands) |
-| `archetype_stats` | Win rates by color pair for a set |
+| `archetype_stats` | Win rates by color pair for a set (17Lands) |
 
 ### Commander Metagame (`edhrec_*`)
 
@@ -258,14 +243,6 @@ See `.env.example` for all available options including base URLs, rate limits, a
 | `deck_info` | Deck metadata (name, format, author, dates) |
 | `search_decks` | Search public decks by format, keyword, or sort order |
 | `user_decks` | List a user's public decks |
-
-### Tournament Data (`spicerack_*`)
-
-| Tool | Description |
-|------|-------------|
-| `recent_tournaments` | Recent tournaments for a competitive format |
-| `tournament_results` | Full standings for a specific tournament |
-| `format_decklists` | Top-finishing decklists across recent tournaments |
 
 ### Metagame (`goldfish_*`)
 
@@ -306,11 +283,7 @@ See `.env.example` for all available options including base URLs, rate limits, a
 
 | Tool | Description |
 |------|-------------|
-| `draft_pack_pick` | Rank cards in a draft pack using 17Lands data |
-| `set_overview` | Top commons/uncommons and trap rares for a format |
 | `sealed_pool_build` | Suggest the best 40-card builds from a sealed pool |
-| `draft_signal_read` | Detect open colors from draft picks |
-| `draft_log_review` | Pick-by-pick review of a completed draft with grade |
 
 ### Constructed Workflows
 
@@ -335,6 +308,15 @@ See `.env.example` for all available options including base URLs, rate limits, a
 | `rules_scenario` | Rules framework for a game scenario |
 | `combat_calculator` | Step-by-step combat phases with keyword interactions |
 
+### Switched-off tools
+
+These stay in the code but are not exposed, because their data stopped coming back (checked October 2026). Each comes back with one setting once the source answers again.
+
+| Tools | Why | Setting |
+|-------|-----|---------|
+| `spicerack_recent_tournaments`, `spicerack_tournament_results`, `spicerack_format_decklists` | api.spicerack.gg refuses connections | `MTG_MCP_ENABLE_SPICERACK=true` |
+| `draft_card_ratings`, `draft_pack_pick`, `set_overview`, `draft_signal_read`, `draft_log_review` (and the `draft_strategy` / `draft_review` prompts) | 17Lands' public card endpoint returns no win rates or pick data | `MTG_MCP_ENABLE_17LANDS_CARD_STATS=true` |
+
 ## Architecture
 
 Built on **FastMCP 3.x**. Each data source is an independent sub-server mounted into a single orchestrator:
@@ -347,7 +329,7 @@ MTG (orchestrator)
 ├── edhrec (namespace: edhrec_)         -> EDHREC (scraped, feature-flagged)
 ├── bulk (namespace: bulk_)             -> Scryfall Oracle Cards bulk data
 ├── moxfield (namespace: moxfield_)     -> Moxfield (reverse-engineered, feature-flagged)
-├── spicerack (namespace: spicerack_)   -> Spicerack tournament API
+├── spicerack (namespace: spicerack_)   -> Spicerack tournament API (off by default)
 ├── goldfish (namespace: goldfish_)     -> MTGGoldfish (scraped, feature-flagged)
 └── workflows (no namespace)            -> 36 tools (31 composed + 5 rules)
 ```
@@ -390,7 +372,7 @@ mise run fix          # Auto-fix lint and format issues
 | Doc | What it covers |
 |-----|----------------|
 | [COOKBOOK.md](docs/COOKBOOK.md) | Usage recipes -- Commander, draft, deck building, rules workflows |
-| [TOOL_DESIGN.md](docs/TOOL_DESIGN.md) | Full reference for all 69 tools, 19 prompts, 21 resources |
+| [TOOL_DESIGN.md](docs/TOOL_DESIGN.md) | Full reference for every tool, prompt and resource (incl. switched-off ones) |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture, FastMCP patterns, design decisions |
 | [SERVICE_CONTRACTS.md](docs/SERVICE_CONTRACTS.md) | API endpoints, rate limits, response shapes per backend |
 | [DATA_SOURCES.md](docs/DATA_SOURCES.md) | All data sources with auth, stability, and access patterns |
@@ -400,7 +382,7 @@ mise run fix          # Auto-fix lint and format issues
 
 ## Status
 
-69 tools, 19 prompts, 21 resource templates. 1340 tests at 88% coverage.
+61 tools exposed (69 registered), 17 prompts, 18 resources.
 
 | Phase | What | Status |
 |-------|------|--------|

@@ -82,7 +82,10 @@ async def workflow_lifespan(server: FastMCP):
         _spellbook = await stack.enter_async_context(
             SpellbookClient(base_url=settings.spellbook_base_url)
         )
-        if settings.enable_17lands:
+        # Workflow tools only use 17Lands per-card stats, which its public
+        # endpoint no longer returns; without the client sealed_pool_build
+        # scores heuristically instead of making a call that always fails.
+        if settings.enable_17lands and settings.enable_17lands_card_stats:
             _seventeen_lands = await stack.enter_async_context(
                 SeventeenLandsClient(base_url=settings.seventeen_lands_base_url)
             )
@@ -161,9 +164,13 @@ def _require_spellbook() -> SpellbookClient:
 
 
 def _require_seventeen_lands() -> SeventeenLandsClient:
-    """Return 17Lands client or raise ToolError if the feature flag is off."""
+    """Return 17Lands client or raise ToolError if the feature flags are off."""
     if _seventeen_lands is None:
-        raise ToolError("17Lands data is not enabled. Set MTG_MCP_ENABLE_17LANDS=true.")
+        raise ToolError(
+            "17Lands card stats are not enabled (17Lands' public endpoint returns no "
+            "per-card win rates). Set MTG_MCP_ENABLE_17LANDS=true and "
+            "MTG_MCP_ENABLE_17LANDS_CARD_STATS=true to try anyway."
+        )
     return _seventeen_lands
 
 
@@ -866,7 +873,8 @@ async def sealed_pool_build(
     """Build 1-3 decks from a sealed pool using card quality and color pair analysis.
 
     Evaluates each 2-color pair, selects best cards, and suggests land splits.
-    Uses 17Lands data when available for card quality scoring.
+    Scores cards by rarity, bombs and removal; uses 17Lands win rates instead
+    when 17Lands card stats are enabled.
     """
     from mtg_mcp_server.workflows.draft_limited import sealed_pool_build as impl
 
@@ -2007,10 +2015,8 @@ Step 2: For the recommended build:
   - Highlight key cards and synergies
   - Note sideboard options for tough matchups
 
-Step 3: If 17Lands data is available:
-  - Note which of the suggested cards have the best GIH WR
-  - Flag any cards that look good on paper but underperform statistically
-  - Check the archetype win rate for the suggested colors
+Step 3: Use draft_archetype_stats for {set_code} (it needs a start and end date)
+  to check how the suggested color pair performs overall.
 
 Help the user finalize their 40-card deck and plan sideboard adjustments."""
 
