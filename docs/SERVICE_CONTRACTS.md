@@ -519,16 +519,16 @@ Parameters:
 
 Returns: JSON with `data` array of user objects.
 
-**GET `/v2/users/{username}/decks`** — A user's public decks
-```
-?pageNumber=1&pageSize=100
-```
-Returns: the same paginated deck-summary shape as deck search (`data` array with
-`publicId`, `name`, `format`, `createdByUser`, ...). Used by `moxfield_user_decks`
-because deck search's `q` matches deck names only and has no author filter.
-Format filtering is applied client-side. The fixture
-`tests/fixtures/moxfield/user_decks.json` mirrors the search shape (Moxfield
-blocks capture from CI-style environments); recapture it when possible.
+**GET `/v2/decks/search?authorUserNames={username}`** — A user's public decks
+
+Deck search's `q` matches deck names only, so `moxfield_user_decks` filters by
+author with `authorUserNames` (the parameter Moxfield's profile pages use), plus
+`fmt`, `pageNumber`, `pageSize`, `sortType`, `sortDirection`. Same response shape
+as deck search. The client re-checks each deck's author in case the filter is
+ignored. (`/v2/users/{username}/decks`, used by older community code, no longer
+answers.) The fixture `tests/fixtures/moxfield/user_decks.json` mirrors the
+search shape; Moxfield blocks capture from CI-style environments, so recapture
+it when possible.
 
 ### Response Shape (Deck Search)
 

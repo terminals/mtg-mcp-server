@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING
-from urllib.parse import quote
 
 import structlog
 from cachetools import TTLCache
@@ -218,31 +217,42 @@ class MoxfieldClient(BaseClient):
     async def get_user_decks(
         self,
         username: str,
+        fmt: str | None = None,
         page: int = 1,
         page_size: int = 100,
     ) -> MoxfieldSearchResult:
-        """List a user's public decks.
+        """List a user's public decks, newest first.
 
-        ``/v2/decks/search`` has no author filter (its ``q`` matches deck
-        names only), so a user's decks come from the per-user listing, which
-        returns the same paginated deck-summary shape as search.
+        Deck search's ``q`` matches deck names, not authors, so searching for
+        a username finds nothing. Moxfield's profile pages instead filter deck
+        search by author with ``authorUserNames``. The response is the usual
+        deck-search shape; callers should still check each deck's author in
+        case the filter is ignored.
 
         Args:
             username: Exact Moxfield username.
+            fmt: Optional format filter (e.g. "commander").
             page: Page number (1-indexed).
             page_size: Results per page.
 
         Returns:
-            Paginated deck summaries authored by the user.
+            Paginated deck summaries.
 
         Raises:
-            MoxfieldError: On API errors (404 when the user doesn't exist) or
-                invalid responses.
+            MoxfieldError: On API errors or invalid responses.
         """
-        log.debug("get_user_decks", username=username, page=page)
-        params: dict[str, str | int] = {"pageNumber": page, "pageSize": page_size}
+        log.debug("get_user_decks", username=username, fmt=fmt, page=page)
+        params: dict[str, str | int] = {
+            "pageNumber": page,
+            "pageSize": page_size,
+            "sortType": "Updated",
+            "sortDirection": "Descending",
+            "authorUserNames": username,
+        }
+        if fmt:
+            params["fmt"] = fmt
         try:
-            response = await self._get(f"/v2/users/{quote(username, safe='')}/decks", params=params)
+            response = await self._get("/v2/decks/search", params=params)
         except ServiceError as exc:
             raise MoxfieldError(exc.message, status_code=exc.status_code) from exc
 

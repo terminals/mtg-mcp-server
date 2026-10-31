@@ -395,13 +395,17 @@ class TestMoxfieldUserDecks:
             return_value=httpx.Response(200, json=user_fixture or _load_fixture("user_search.json"))
         )
 
+    @staticmethod
+    def _mock_author_search(fixture: str = "user_decks.json") -> respx.Route:
+        return respx.get(f"{BASE_URL}/v2/decks/search", params={"authorUserNames": "player1"}).mock(
+            return_value=httpx.Response(200, json=_load_fixture(fixture))
+        )
+
     @respx.mock
     async def test_returns_user_decks(self, client: Client):
-        """user_decks lists the decks from the user's deck listing."""
+        """user_decks lists the decks deck search returns for that author."""
         self._mock_user()
-        respx.get(f"{BASE_URL}/v2/users/player1/decks").mock(
-            return_value=httpx.Response(200, json=_load_fixture("user_decks.json"))
-        )
+        self._mock_author_search()
 
         result = await client.call_tool("user_decks", {"username": "player1"})
         text = result.content[0].text
@@ -415,31 +419,27 @@ class TestMoxfieldUserDecks:
     async def test_structured_content_has_user_and_decks(self, client: Client):
         """Structured content contains username and deck list."""
         self._mock_user()
-        respx.get(f"{BASE_URL}/v2/users/player1/decks").mock(
-            return_value=httpx.Response(200, json=_load_fixture("user_decks.json"))
-        )
+        self._mock_author_search()
 
         result = await client.call_tool("user_decks", {"username": "player1"})
         sc = result.structured_content
 
         assert sc is not None
         assert sc["username"] == "player1"
+        assert sc["author_filter_ignored"] is False
         assert [d["id"] for d in sc["decks"]] == ["p1deck0", "p1deck1", "p1deck2"]
 
     @respx.mock
-    async def test_does_not_use_deck_search(self, client: Client):
-        """Deck search can't filter by author, so it is not queried."""
+    async def test_searches_by_author_not_text(self, client: Client):
+        """The username goes in authorUserNames, not the text query."""
         self._mock_user()
-        respx.get(f"{BASE_URL}/v2/users/player1/decks").mock(
-            return_value=httpx.Response(200, json=_load_fixture("user_decks.json"))
-        )
-        search = respx.get(f"{BASE_URL}/v2/decks/search").mock(
-            return_value=httpx.Response(200, json=_load_fixture("search_decks.json"))
-        )
+        route = self._mock_author_search()
 
         await client.call_tool("user_decks", {"username": "player1"})
 
-        assert not search.called
+        params = route.calls[0].request.url.params
+        assert params["authorUserNames"] == "player1"
+        assert "q" not in params
 
     @respx.mock
     async def test_user_not_found_returns_error(self, client: Client):
@@ -470,28 +470,10 @@ class TestMoxfieldUserDecks:
         assert "Moxfield API error" in result.content[0].text
 
     @respx.mock
-    async def test_listing_server_error_returns_error(self, client: Client):
-        """A 5xx from the deck listing is an error, not a silent fallback."""
-        self._mock_user()
-        respx.get(f"{BASE_URL}/v2/users/player1/decks").mock(
-            return_value=httpx.Response(500, text="Internal Server Error")
-        )
-
-        result = await client.call_tool(
-            "user_decks",
-            {"username": "player1"},
-            raise_on_error=False,
-        )
-        assert result.is_error
-        assert "Moxfield API error" in result.content[0].text
-
-    @respx.mock
     async def test_format_filter(self, client: Client):
-        """user_decks keeps only decks in the requested format."""
+        """The format is sent to search and enforced on the results."""
         self._mock_user()
-        respx.get(f"{BASE_URL}/v2/users/player1/decks").mock(
-            return_value=httpx.Response(200, json=_load_fixture("user_decks.json"))
-        )
+        route = self._mock_author_search()
 
         result = await client.call_tool(
             "user_decks",
@@ -499,26 +481,22 @@ class TestMoxfieldUserDecks:
         )
         sc = result.structured_content
 
+        assert route.calls[0].request.url.params["fmt"] == "Commander"
         assert sc is not None
         assert [d["name"] for d in sc["decks"]] == ["Squall Reanimator"]
 
     @respx.mock
-    async def test_falls_back_to_search_when_listing_gone(self, client: Client):
-        """If the listing endpoint 404s, search and keep only this author's decks."""
+    async def test_flags_ignored_author_filter(self, client: Client):
+        """If search returns only other authors' decks, say so instead of a bare 'none'."""
         self._mock_user()
-        respx.get(f"{BASE_URL}/v2/users/player1/decks").mock(
-            return_value=httpx.Response(404, text="Not Found")
-        )
-        route = respx.get(f"{BASE_URL}/v2/decks/search").mock(
-            return_value=httpx.Response(200, json=_load_fixture("search_decks.json"))
-        )
+        others = _load_fixture("search_decks.json")
+        others["data"] = [d for d in others["data"] if d["createdByUser"]["userName"] != "player1"]
+        respx.get(f"{BASE_URL}/v2/decks/search").mock(return_value=httpx.Response(200, json=others))
 
-        result = await client.call_tool(
-            "user_decks",
-            {"username": "player1", "format": "pauper"},
-        )
+        result = await client.call_tool("user_decks", {"username": "player1"})
         sc = result.structured_content
 
-        assert "fmt=pauper" in str(route.calls[0].request.url)
         assert sc is not None
-        assert [d["name"] for d in sc["decks"]] == ["Mono-Blue Terror"]
+        assert sc["decks"] == []
+        assert sc["author_filter_ignored"] is True
+        assert "author filter may have changed" in result.content[0].text

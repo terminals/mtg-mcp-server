@@ -530,12 +530,12 @@ class TestSearchDecks:
 
 
 class TestGetUserDecks:
-    """Per-user public deck listing."""
+    """Deck search filtered by author."""
 
     @respx.mock
-    async def test_parses_listing(self):
-        """The listing parses into deck summaries by that author."""
-        respx.get(f"{BASE_URL}/v2/users/player1/decks").mock(
+    async def test_parses_results(self):
+        """Results parse into deck summaries by that author."""
+        respx.get(f"{BASE_URL}/v2/decks/search", params={"authorUserNames": "player1"}).mock(
             return_value=httpx.Response(200, json=_load_fixture("user_decks.json"))
         )
         async with MoxfieldClient(base_url=BASE_URL) as client:
@@ -546,22 +546,25 @@ class TestGetUserDecks:
         assert {d.author for d in result.decks} == {"player1"}
 
     @respx.mock
-    async def test_pagination_params_and_escaping(self):
-        """Paging params are sent and the username is path-escaped."""
-        route = respx.get(f"{BASE_URL}/v2/users/a%20b/decks").mock(
+    async def test_params(self):
+        """Author, format and paging go out as query params; no text query."""
+        route = respx.get(f"{BASE_URL}/v2/decks/search").mock(
             return_value=httpx.Response(200, json={"data": []})
         )
         async with MoxfieldClient(base_url=BASE_URL) as client:
-            await client.get_user_decks("a b", page=2, page_size=50)
+            await client.get_user_decks("a b", fmt="pauper", page=2, page_size=50)
 
-        url = str(route.calls[0].request.url)
-        assert "pageNumber=2" in url
-        assert "pageSize=50" in url
+        params = route.calls[0].request.url.params
+        assert params["authorUserNames"] == "a b"
+        assert params["fmt"] == "pauper"
+        assert params["pageNumber"] == "2"
+        assert params["pageSize"] == "50"
+        assert "q" not in params
 
     @respx.mock
-    async def test_not_found_keeps_status(self):
-        """A 404 raises MoxfieldError carrying the status code."""
-        respx.get(f"{BASE_URL}/v2/users/ghost/decks").mock(
+    async def test_error_keeps_status(self):
+        """HTTP errors raise MoxfieldError carrying the status code."""
+        respx.get(f"{BASE_URL}/v2/decks/search").mock(
             return_value=httpx.Response(404, text="Not Found")
         )
         async with MoxfieldClient(base_url=BASE_URL) as client:

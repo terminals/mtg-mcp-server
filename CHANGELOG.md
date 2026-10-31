@@ -60,13 +60,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Command Tower and Swiftfoot Boots), so prices showed as N/A and staples dropped
   out of budgets. `scryfall_card_details`/`card_price` and every tool using
   Scryfall lookups now fall back to the cheapest priced paper printing;
-  `price_comparison`, `deck_analysis`, `budget_upgrade`, `precon_upgrade` and
-  `suggest_mana_base` do the same for bulk-data cards.
+  `price_comparison`, `deck_analysis`, `budget_upgrade`, `precon_upgrade`,
+  `suggest_mana_base`, `color_identity_staples` and `build_around` do the same
+  for bulk-data cards.
 - `card_comparison` structured content includes each card's `synergy`,
   `inclusion` and `combo_count` (plus `combo_count_capped`), not just the table.
-- `moxfield_user_decks` reads the user's deck listing (`/v2/users/{name}/decks`).
-  It searched deck names for the username, so it found no decks for nearly
-  everyone. Deck search remains a fallback if the listing endpoint goes away.
+- `moxfield_user_decks` filters deck search by author (`authorUserNames`, as
+  Moxfield's profile pages do) instead of searching deck names for the username,
+  which found no decks for nearly everyone. Results are still checked per author,
+  and the tool says so if Moxfield stops honoring the filter.
 - `color_identity_staples` headings keep letter codes upper-case ("WB Staples").
 
 - `suggest_sideboard` now filters sideboard candidates by the deck's color identity,

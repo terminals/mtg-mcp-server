@@ -446,6 +446,7 @@ async def build_around(
     *,
     bulk: ScryfallBulkClient,
     spellbook: SpellbookClient,
+    scryfall: ScryfallClient | None = None,
     budget: float | None = None,
     limit: int = 20,
     response_format: Literal["detailed", "concise"] = "detailed",
@@ -460,6 +461,8 @@ async def build_around(
         format: Format for legality filtering.
         bulk: Initialized ScryfallBulkClient.
         spellbook: Initialized SpellbookClient.
+        scryfall: Optional ScryfallClient to price suggestions whose bulk
+            printing has no USD price yet.
         budget: Optional max price per card in USD.
         limit: Maximum suggestions.
         response_format: Output verbosity.
@@ -508,6 +511,11 @@ async def build_around(
         )
         candidates = [c for c in candidates if c.name.lower() not in ba_names]
         synergy_cards = _rank_by_shared_terms(candidates, search_terms)[:limit]
+        if scryfall is not None and synergy_cards:
+            from mtg_mcp_server.workflows.card_resolver import fill_missing_prices
+
+            repriced = await fill_missing_prices(synergy_cards, scryfall=scryfall)
+            synergy_cards = [repriced.get(c.name.lower(), c) for c in synergy_cards]
 
     # Step 4: Check Spellbook for combos
     combo_tasks = [spellbook.find_combos(name, limit=5) for name in cards]

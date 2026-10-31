@@ -202,7 +202,7 @@ List a user's public decks on Moxfield.
 |-------|--------|
 | Input | `username: str`, `format: str | None = None` |
 | Output | User's public decks with name, format, colors, card counts. Verifies user exists first. Format filter applied to the listing. |
-| Backend | `MoxfieldClient.search_users()` + `MoxfieldClient.get_user_decks()` (falls back to `search_decks()` filtered by author if the listing endpoint is gone) |
+| Backend | `MoxfieldClient.search_users()` + `MoxfieldClient.get_user_decks()` (deck search with `authorUserNames`; results re-checked per author, `author_filter_ignored` flags a filter Moxfield stopped honoring) |
 | Annotations | readOnly=true, idempotent=true, openWorld=true |
 | Tags | beta |
 

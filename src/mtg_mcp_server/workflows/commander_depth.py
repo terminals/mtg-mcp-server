@@ -903,6 +903,7 @@ async def color_identity_staples(
     *,
     bulk: ScryfallBulkClient,
     edhrec: EDHRECClient | None = None,
+    scryfall: ScryfallClient | None = None,
     category: str | None = None,
     limit: int = 20,
     response_format: Literal["detailed", "concise"] = "detailed",
@@ -916,6 +917,8 @@ async def color_identity_staples(
         color_identity: Color identity string (e.g. "sultai", "BUG", "mono-red").
         bulk: Initialized ScryfallBulkClient.
         edhrec: Initialized EDHRECClient, or None if disabled.
+        scryfall: Optional ScryfallClient to price staples whose bulk printing
+            has no USD price yet (Sol Ring, Command Tower, ...).
         category: Optional card type filter (e.g. "creatures", "instants").
         limit: Maximum results to return.
         response_format: 'detailed' or 'concise'.
@@ -953,6 +956,11 @@ async def color_identity_staples(
         type_contains=type_contains,
         limit=limit,
     )
+    if scryfall is not None and top_cards:
+        from mtg_mcp_server.workflows.card_resolver import fill_missing_prices
+
+        repriced = await fill_missing_prices(top_cards, scryfall=scryfall)
+        top_cards = [repriced.get(c.name.lower(), c) for c in top_cards]
 
     # Format output
     identity_str = ", ".join(sorted(identity)) if identity else "Colorless"
