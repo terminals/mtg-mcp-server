@@ -23,6 +23,14 @@ class SeventeenLandsError(ServiceError):
 _DEFAULT_START_DATE = "2020-01-01"
 _DEFAULT_END_DATE = "2099-12-31"
 
+_CARD_STATS_UNAVAILABLE = (
+    "17Lands returned no per-card win rates for {set_code}. 17Lands no longer "
+    "publishes card stats through its public API (they now say the data is for "
+    "use on 17lands.com only), or the set is too new to have data. "
+    "Color-pair win rates still work via draft_archetype_stats; for card stats, "
+    "open https://www.17lands.com/card_data in a browser."
+)
+
 
 class SeventeenLandsClient(BaseClient):
     """Async client for the 17Lands draft data API.
@@ -85,7 +93,15 @@ class SeventeenLandsClient(BaseClient):
             )
         except ServiceError as exc:
             raise SeventeenLandsError(exc.message, status_code=exc.status_code) from exc
-        return [DraftCardRating.model_validate(item) for item in response.json()]
+        ratings = [DraftCardRating.model_validate(item) for item in response.json()]
+        if ratings and all(r.ever_drawn_win_rate is None for r in ratings):
+            # Since 2026 this endpoint still lists every card but returns no
+            # win rates for any set. 17Lands moved per-card stats to a site-only
+            # API whose responses say the data is for use on 17lands.com only,
+            # so this server does not call it. Fail loudly instead of returning
+            # a table of N/A values that looks like real data.
+            raise SeventeenLandsError(_CARD_STATS_UNAVAILABLE.format(set_code=set_code.upper()))
+        return ratings
 
     @async_cached(_color_ratings_cache, key=_method_key)
     async def color_ratings(

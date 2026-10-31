@@ -22,8 +22,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import gzip
+import io
 import json
 import random
+import sys
 import time
 import zlib
 from typing import TYPE_CHECKING, Self
@@ -36,9 +38,15 @@ from mtg_mcp_server.services.base import DEFAULT_USER_AGENT, ServiceError
 from mtg_mcp_server.types import Card
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable, Iterator
     from typing import Any as JSONValue
 
-__all__ = ["ScryfallBulkClient", "ScryfallBulkDownloadError", "ScryfallBulkError"]
+__all__ = [
+    "ScryfallBulkClient",
+    "ScryfallBulkDownloadError",
+    "ScryfallBulkError",
+    "shared_bulk_client",
+]
 
 log = structlog.get_logger(service="ScryfallBulkClient")
 
@@ -120,21 +128,47 @@ class ScryfallBulkClient:
         # Background refresh task
         self._refresh_task: asyncio.Task[None] | None = None
 
+        # Optional startup warm-up task (see start_preload)
+        self._preload_task: asyncio.Task[None] | None = None
+
     async def __aenter__(self) -> Self:
         """Enter async context. Data is loaded lazily on first access, not here."""
         return self
 
     async def __aexit__(self, *exc: object) -> None:
-        """Cancel background refresh and release in-memory data."""
-        if self._refresh_task is not None:
-            self._refresh_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._refresh_task
-            self._refresh_task = None
+        """Cancel background tasks and release in-memory data."""
+        for task in (self._refresh_task, self._preload_task):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._refresh_task = None
+        self._preload_task = None
 
         self._cards.clear()
         self._unique_cards.clear()
         self._loaded_at = 0.0
+
+    def start_preload(self) -> None:
+        """Start loading the bulk data in the background right away.
+
+        Without this, the first tool call that needs bulk data pays for the
+        whole download and parse. On hosted deployments that first call can
+        exceed the client's timeout, so the server warms the data at startup
+        instead. Errors are logged; tool calls retry through ``ensure_loaded``.
+        """
+        if self._preload_task is not None:
+            return  # Already started
+        self._preload_task = asyncio.create_task(self._preload())
+
+    async def _preload(self) -> None:
+        """Warm the bulk data once, logging (not raising) on failure."""
+        try:
+            await self.ensure_loaded()
+        except ScryfallBulkError:
+            log.warning("scryfall_bulk.preload_failed", exc_info=True)
+        except Exception:
+            log.error("scryfall_bulk.preload_unexpected_error", exc_info=True)
 
     def start_background_refresh(self) -> None:
         """Start the background refresh loop.
@@ -565,6 +599,50 @@ class ScryfallBulkClient:
         )
 
     @staticmethod
+    def _iter_entries(raw: bytes) -> Iterator[JSONValue]:
+        """Yield card entries from any supported payload shape.
+
+        Gzipped payloads stream line by line (see :meth:`_iter_gzip_entries`).
+        Uncompressed payloads are small in practice (tests, legacy mirrors)
+        and go through :meth:`_extract_entries` unchanged.
+        """
+        if raw[:2] == b"\x1f\x8b":
+            yield from ScryfallBulkClient._iter_gzip_entries(raw)
+        else:
+            yield from ScryfallBulkClient._extract_entries(raw)
+
+    @staticmethod
+    def _iter_gzip_entries(raw: bytes) -> Iterator[JSONValue]:
+        """Stream entries out of a gzipped payload without full decompression.
+
+        JSONL (one card per line) is decoded line by line. A gzipped JSON
+        *array* (legacy shape) cannot be streamed with the stdlib, so it is
+        decompressed whole and handed to :meth:`_extract_entries`.
+
+        Raises:
+            ScryfallBulkError: On corrupt gzip or a malformed JSONL line.
+        """
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(raw)) as reader:
+                head = reader.peek(4096).lstrip()
+                if head.startswith(b"["):
+                    yield from ScryfallBulkClient._extract_entries(reader.read())
+                    return
+
+                for lineno, line in enumerate(reader, start=1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        yield json.loads(line)
+                    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                        raise ScryfallBulkError(
+                            f"Failed to parse bulk data (JSONL line {lineno}): {exc}"
+                        ) from exc
+        except (OSError, EOFError, zlib.error) as exc:
+            raise ScryfallBulkError(f"Failed to parse bulk data: corrupt gzip: {exc}") from exc
+
+    @staticmethod
     def _decompress_if_gzip(raw: bytes) -> bytes:
         """Decompress the payload when it starts with gzip magic bytes.
 
@@ -644,16 +722,22 @@ class ScryfallBulkClient:
         We key lookups by both the full name and the front face name
         (``name.split(" // ")[0]``).
 
+        Gzipped JSONL (Scryfall's current format, ~210MB once decompressed) is
+        decompressed and parsed **one line at a time** so the decompressed
+        text and the full list of raw dicts are never held in memory together.
+        Loading them all at once peaked above 1.3GB and got the process killed
+        on small hosted instances.
+
         Raises:
             ScryfallBulkError: If the payload is malformed or yields no cards.
         """
-        entries = self._extract_entries(self._decompress_if_gzip(raw_bytes))
-
         cards: dict[str, Card] = {}
         unique: list[Card] = []
         skipped = 0
+        total = 0
 
-        for entry in entries:
+        for entry in self._iter_entries(raw_bytes):
+            total += 1
             if not isinstance(entry, dict):
                 skipped += 1
                 continue
@@ -662,6 +746,16 @@ class ScryfallBulkClient:
             if layout in _EXCLUDED_LAYOUTS:
                 skipped += 1
                 continue
+
+            # ~40k cards each carry ~20 legality strings drawn from a handful of
+            # values. Interning them shares one object per distinct string.
+            legalities = entry.get("legalities")
+            if isinstance(legalities, dict):
+                entry["legalities"] = {
+                    sys.intern(fmt): sys.intern(status)
+                    for fmt, status in legalities.items()
+                    if isinstance(fmt, str) and isinstance(status, str)
+                }
 
             try:
                 card = Card.model_validate(entry)
@@ -692,7 +786,7 @@ class ScryfallBulkClient:
 
         if not unique:
             raise ScryfallBulkError(
-                f"Parsed 0 cards from {len(entries)} entries ({skipped} skipped). "
+                f"Parsed 0 cards from {total} entries ({skipped} skipped). "
                 "Scryfall bulk data schema may have changed."
             )
 
@@ -713,3 +807,45 @@ class ScryfallBulkClient:
                 log.warning("scryfall_bulk.background_refresh_error", exc_info=True)
             except Exception:
                 log.error("scryfall_bulk.background_refresh_unexpected_error", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# One process-wide client
+# ---------------------------------------------------------------------------
+
+# The bulk provider and the workflow server both need bulk data. Each used to
+# build its own client, so a running server held two full copies of every card.
+# They now share one client through this reference-counted context manager.
+_shared_client: ScryfallBulkClient | None = None
+_shared_users = 0
+
+
+@contextlib.asynccontextmanager
+async def shared_bulk_client(
+    factory: Callable[[], ScryfallBulkClient],
+) -> AsyncIterator[ScryfallBulkClient]:
+    """Yield the process-wide bulk client, creating it on first use.
+
+    ``factory`` is only called when no shared client exists yet, so callers
+    keep control of construction (and tests can keep patching the
+    constructor). The client is entered once, and exited when the last user
+    leaves.
+
+    Args:
+        factory: Zero-argument callable that builds a new client.
+    """
+    global _shared_client, _shared_users
+    client = _shared_client
+    if client is None:
+        client = factory()
+        await client.__aenter__()
+        _shared_client = client
+    _shared_users += 1
+    try:
+        yield client
+    finally:
+        _shared_users -= 1
+        if _shared_users <= 0:
+            _shared_client = None
+            _shared_users = 0
+            await client.__aexit__(None, None, None)

@@ -689,3 +689,36 @@ class TestCombatCalculator:
 
         assert isinstance(result, WorkflowResult)
         assert "unblocked" in result.markdown.lower() or "no blockers" in result.markdown.lower()
+
+
+class TestConciseRuleText:
+    """Concise rule output keeps the whole first sentence."""
+
+    def test_rule_reference_is_not_cut(self):
+        """Regression: splitting on every "." cut text at "(see rule 704."."""
+        from mtg_mcp_server.workflows.rules import _first_sentence
+
+        text = (
+            "The only ways a permanent can be destroyed are as a result of an effect "
+            "that uses the word “destroy” or as a result of the state-based actions "
+            "that check for lethal damage (see rule 704.5g). If a permanent is "
+            "indestructible, rules and effects cannot destroy it."
+        )
+        assert _first_sentence(text).endswith("(see rule 704.5g).")
+
+    def test_ellipsis_in_quoted_ability_is_not_a_sentence_end(self):
+        from mtg_mcp_server.workflows.rules import _first_sentence
+
+        text = (
+            "An ability that reads “Whenever [a creature] blocks, . . .” triggers only "
+            "once each combat for that creature. It triggers if the creature blocks."
+        )
+        assert _first_sentence(text) == (
+            "An ability that reads “Whenever [a creature] blocks, . . .” triggers only "
+            "once each combat for that creature."
+        )
+
+    def test_text_without_period_is_returned_whole(self):
+        from mtg_mcp_server.workflows.rules import _first_sentence
+
+        assert _first_sentence("Lifelink") == "Lifelink"

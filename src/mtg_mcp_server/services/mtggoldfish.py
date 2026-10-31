@@ -25,6 +25,7 @@ from mtg_mcp_server.types import (
     GoldfishFormatStaple,
     GoldfishMetaSnapshot,
 )
+from mtg_mcp_server.utils.decklist import parse_decklist
 from mtg_mcp_server.utils.formatters import slugify
 
 log = structlog.get_logger(service="mtggoldfish")
@@ -177,12 +178,29 @@ class MTGGoldfishClient(BaseClient):
         try:
             response = await self._get(f"/archetype/{url_slug}")
         except ServiceError as exc:
-            if exc.status_code == 404:
+            if exc.status_code != 404:
+                raise MTGGoldfishError(exc.message, status_code=exc.status_code) from exc
+            # Some archetypes live at UUID-style URLs (e.g. Pauper Bogles is
+            # "/archetype/bogles-df219f8f-..."), so the name-derived slug 404s.
+            # The metagame page links every archetype by its real slug.
+            real_slug = await self._metagame_slug(format, archetype)
+            if real_slug is None or real_slug == url_slug:
                 raise ArchetypeNotFoundError(
                     f"Archetype not found on MTGGoldfish: '{archetype}'",
                     status_code=404,
                 ) from exc
-            raise MTGGoldfishError(exc.message, status_code=exc.status_code) from exc
+            log.debug("get_archetype.slug_from_metagame", archetype=archetype, slug=real_slug)
+            try:
+                response = await self._get(f"/archetype/{real_slug}")
+            except ServiceError as retry_exc:
+                if retry_exc.status_code == 404:
+                    raise ArchetypeNotFoundError(
+                        f"Archetype not found on MTGGoldfish: '{archetype}'",
+                        status_code=404,
+                    ) from retry_exc
+                raise MTGGoldfishError(
+                    retry_exc.message, status_code=retry_exc.status_code
+                ) from retry_exc
 
         html = response.text
         detail = self._parse_archetype_html(html, archetype)
@@ -254,6 +272,26 @@ class MTGGoldfishClient(BaseClient):
         log.debug("get_format_staples.complete", format=format, count=len(staples))
         return staples
 
+    async def _metagame_slug(self, format: str, archetype: str) -> str | None:
+        """Find an archetype's real URL slug on the format's metagame page.
+
+        Matches on the slugified name so "Mono Red Madness" and
+        "Mono-Red Madness" resolve to the same archetype.
+
+        Returns:
+            The slug (path after ``/archetype/``), or None if not found.
+        """
+        try:
+            meta = await self.get_metagame(format)
+        except MTGGoldfishError:
+            log.warning("get_archetype.metagame_lookup_failed", format=format, exc_info=True)
+            return None
+        needle = slugify(archetype)
+        for entry in meta.archetypes:
+            if entry.slug and slugify(entry.name) == needle:
+                return entry.slug
+        return None
+
     @async_cached(_price_cache, key=_method_key)
     async def get_deck_price(self, format: str, archetype: str) -> GoldfishDeckPrice:
         """Get price metadata for an archetype.
@@ -290,11 +328,12 @@ class MTGGoldfishClient(BaseClient):
         # Get the decklist for card counts
         detail = await self.get_archetype(format, archetype)
 
+        # Decklist lines are "4 Lightning Bolt"; count cards, not lines.
         return GoldfishDeckPrice(
             archetype=archetype,
             price_paper=price_paper,
-            mainboard_count=len(detail.mainboard),
-            sideboard_count=len(detail.sideboard),
+            mainboard_count=sum(qty for qty, _ in parse_decklist(detail.mainboard)),
+            sideboard_count=sum(qty for qty, _ in parse_decklist(detail.sideboard)),
         )
 
     # -----------------------------------------------------------------------

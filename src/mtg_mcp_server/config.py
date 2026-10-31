@@ -59,6 +59,10 @@ class Settings(BaseSettings):
 
     # --- Scryfall Bulk Data ---
     bulk_data_refresh_hours: int = 12
+    # Load bulk data in the background at startup instead of on the first
+    # tool call. Recommended for hosted (HTTP) deployments, where the first
+    # call would otherwise wait for the full download and parse.
+    bulk_data_preload: bool = False
 
     # --- Comprehensive Rules ---
     rules_url: str = "https://media.wizards.com/2025/downloads/MagicCompRules%2020250404.txt"

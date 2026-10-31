@@ -231,6 +231,10 @@ async def estimate_bracket(
         lines.append(f"Banned cards: {', '.join(result.banned_cards)}")
     if result.game_changer_cards:
         lines.append(f"Game-changer cards: {', '.join(result.game_changer_cards)}")
+    if result.mass_land_denial_cards:
+        lines.append(f"Mass land denial: {', '.join(result.mass_land_denial_cards)}")
+    if result.extra_turn_cards:
+        lines.append(f"Extra-turn cards: {', '.join(result.extra_turn_cards)}")
     if result.two_card_combos:
         lines.append(f"Two-card combos: {', '.join(str(c) for c in result.two_card_combos)}")
     if result.lock_combos:
@@ -240,6 +244,8 @@ async def estimate_bracket(
         [
             result.banned_cards,
             result.game_changer_cards,
+            result.mass_land_denial_cards,
+            result.extra_turn_cards,
             result.two_card_combos,
             result.lock_combos,
         ]

@@ -113,6 +113,27 @@ class TestCardRatings:
         assert ratings == []
 
     @respx.mock
+    async def test_cards_without_any_win_rates_raise(self):
+        """A card list with no win rates at all raises a clear error.
+
+        Regression: since 2026 the public endpoint lists every card with null
+        win rates and near-zero game counts for every set, and the tools showed
+        tables of "GIH WR: N/A" as if that were real data.
+        """
+        stripped = [
+            {"name": "Summon: Bahamut", "color": "", "rarity": "mythic", "game_count": 0},
+            {"name": "Combat Tutorial", "color": "W", "rarity": "common", "game_count": 5},
+        ]
+        respx.get(
+            f"{BASE_URL}/card_ratings/data",
+            params={"expansion": "FIN", "event_type": "PremierDraft"},
+        ).mock(return_value=httpx.Response(200, json=stripped))
+
+        async with SeventeenLandsClient(base_url=BASE_URL) as client:
+            with pytest.raises(SeventeenLandsError, match="no per-card win rates for FIN"):
+                await client.card_ratings("FIN")
+
+    @respx.mock
     async def test_server_error_raises(self):
         """500 response from card ratings raises SeventeenLandsError."""
         respx.get(

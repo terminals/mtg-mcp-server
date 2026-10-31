@@ -44,7 +44,7 @@ from mtg_mcp_server.services.moxfield import MoxfieldClient
 from mtg_mcp_server.services.mtggoldfish import MTGGoldfishClient
 from mtg_mcp_server.services.rules import RulesService
 from mtg_mcp_server.services.scryfall import CardNotFoundError, ScryfallClient
-from mtg_mcp_server.services.scryfall_bulk import ScryfallBulkClient
+from mtg_mcp_server.services.scryfall_bulk import ScryfallBulkClient, shared_bulk_client
 from mtg_mcp_server.services.seventeen_lands import SeventeenLandsClient
 from mtg_mcp_server.services.spellbook import SpellbookClient
 from mtg_mcp_server.services.spicerack import SpicerackClient
@@ -91,12 +91,18 @@ async def workflow_lifespan(server: FastMCP):
                 EDHRECClient(base_url=settings.edhrec_base_url)
             )
         if settings.enable_bulk_data:
-            client = ScryfallBulkClient(
-                base_url=settings.scryfall_base_url,
-                refresh_hours=settings.bulk_data_refresh_hours,
+            # Shared with the bulk provider so card data is held only once.
+            _bulk = await stack.enter_async_context(
+                shared_bulk_client(
+                    lambda: ScryfallBulkClient(
+                        base_url=settings.scryfall_base_url,
+                        refresh_hours=settings.bulk_data_refresh_hours,
+                    )
+                )
             )
-            _bulk = await stack.enter_async_context(client)
             _bulk.start_background_refresh()
+            if settings.bulk_data_preload:
+                _bulk.start_preload()
         if settings.enable_rules:
             _rules = RulesService(
                 rules_url=settings.rules_url,

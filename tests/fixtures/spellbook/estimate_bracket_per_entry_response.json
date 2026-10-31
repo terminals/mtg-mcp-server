@@ -1,0 +1,274 @@
+{
+  "bracketTag": "R",
+  "cards": [
+    {
+      "quantity": 1,
+      "banned": false,
+      "gameChanger": true,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "card": {
+        "id": 2173,
+        "name": "Bolas's Citadel",
+        "oracleId": "2bd111bb-ce02-414c-b5b7-e0e037d8d96b",
+        "typeLine": "Legendary Artifact"
+      }
+    },
+    {
+      "quantity": 1,
+      "banned": false,
+      "gameChanger": true,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "card": {
+        "id": 3031,
+        "name": "Drannith Magistrate",
+        "oracleId": "aadd10d0-6dd0-4bdc-8d93-ff08e29a5863",
+        "typeLine": "Creature \u2014 Human Wizard"
+      }
+    },
+    {
+      "quantity": 1,
+      "banned": false,
+      "gameChanger": true,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "card": {
+        "id": 1211,
+        "name": "Opposition Agent",
+        "oracleId": "1f438b8f-fe23-4f3b-ab2e-f6c33676c462",
+        "typeLine": "Creature \u2014 Human Rogue"
+      }
+    },
+    {
+      "quantity": 1,
+      "banned": false,
+      "gameChanger": false,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "card": {
+        "id": 5034,
+        "name": "Sol Ring",
+        "oracleId": "6ad8011d-3471-4369-9d68-b264cc027487",
+        "typeLine": "Artifact"
+      }
+    },
+    {
+      "quantity": 1,
+      "banned": false,
+      "gameChanger": false,
+      "massLandDenial": true,
+      "extraTurn": false,
+      "card": {
+        "id": 6402,
+        "name": "Winter Orb",
+        "oracleId": "1dcbd583-3388-4b34-a7cd-131648aa6abd",
+        "typeLine": "Artifact"
+      }
+    },
+    {
+      "quantity": 6,
+      "banned": false,
+      "gameChanger": false,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "card": {
+        "id": null,
+        "name": "Plains",
+        "oracleId": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
+        "typeLine": "Basic Land \u2014 Plains"
+      }
+    }
+  ],
+  "combos": [
+    {
+      "relevant": false,
+      "borderlineRelevant": false,
+      "arguablyTwoCard": false,
+      "definitelyTwoCard": false,
+      "speed": 5,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "lock": false,
+      "skipTurns": false,
+      "controlAllOpponents": false,
+      "controlSomeOpponents": false,
+      "combo": {
+        "id": "2292-2730-3175",
+        "uses": [
+          {
+            "card": {
+              "id": 2730,
+              "name": "Kaya's Ghostform",
+              "oracleId": "b15c6203-6311-44eb-916d-a4c271960c74",
+              "typeLine": "Enchantment \u2014 Aura"
+            },
+            "quantity": 1
+          },
+          {
+            "card": {
+              "id": 3175,
+              "name": "Sun Titan",
+              "oracleId": "b2e950fb-cb7e-40a0-a311-5bbdd0477b29",
+              "typeLine": "Creature \u2014 Giant"
+            },
+            "quantity": 1
+          },
+          {
+            "card": {
+              "id": 2292,
+              "name": "Viscera Seer",
+              "oracleId": "f82a4e85-526d-4456-b700-7760043a31be",
+              "typeLine": "Creature \u2014 Vampire Wizard"
+            },
+            "quantity": 1
+          }
+        ]
+      }
+    },
+    {
+      "relevant": true,
+      "borderlineRelevant": true,
+      "arguablyTwoCard": true,
+      "definitelyTwoCard": true,
+      "speed": 5,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "lock": false,
+      "skipTurns": false,
+      "controlAllOpponents": false,
+      "controlSomeOpponents": false,
+      "combo": {
+        "id": "372-2896",
+        "uses": [
+          {
+            "card": {
+              "id": 372,
+              "name": "Abdel Adrian, Gorion's Ward",
+              "oracleId": "cab092f9-b7ff-43b9-935f-310869a4daf8",
+              "typeLine": "Legendary Creature \u2014 Human Warrior"
+            },
+            "quantity": 1
+          },
+          {
+            "card": {
+              "id": 2896,
+              "name": "Necromancy",
+              "oracleId": "699b192c-f3f2-4ac5-9ca9-e35bcf08ad8a",
+              "typeLine": "Enchantment"
+            },
+            "quantity": 1
+          }
+        ]
+      }
+    },
+    {
+      "relevant": true,
+      "borderlineRelevant": true,
+      "arguablyTwoCard": true,
+      "definitelyTwoCard": true,
+      "speed": 5,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "lock": false,
+      "skipTurns": false,
+      "controlAllOpponents": false,
+      "controlSomeOpponents": false,
+      "combo": {
+        "id": "372-4812",
+        "uses": [
+          {
+            "card": {
+              "id": 372,
+              "name": "Abdel Adrian, Gorion's Ward",
+              "oracleId": "cab092f9-b7ff-43b9-935f-310869a4daf8",
+              "typeLine": "Legendary Creature \u2014 Human Warrior"
+            },
+            "quantity": 1
+          },
+          {
+            "card": {
+              "id": 4812,
+              "name": "Animate Dead",
+              "oracleId": "c0d8fef4-65f4-4769-982d-b397d2b7e977",
+              "typeLine": "Enchantment \u2014 Aura"
+            },
+            "quantity": 1
+          }
+        ]
+      }
+    },
+    {
+      "relevant": false,
+      "borderlineRelevant": false,
+      "arguablyTwoCard": true,
+      "definitelyTwoCard": false,
+      "speed": 5,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "lock": false,
+      "skipTurns": false,
+      "controlAllOpponents": false,
+      "controlSomeOpponents": false,
+      "combo": {
+        "id": "2896-5276",
+        "uses": [
+          {
+            "card": {
+              "id": 5276,
+              "name": "Leonin Relic-Warder",
+              "oracleId": "8e720216-a980-4a34-8aef-62ac3ef15a6e",
+              "typeLine": "Creature \u2014 Cat Cleric"
+            },
+            "quantity": 1
+          },
+          {
+            "card": {
+              "id": 2896,
+              "name": "Necromancy",
+              "oracleId": "699b192c-f3f2-4ac5-9ca9-e35bcf08ad8a",
+              "typeLine": "Enchantment"
+            },
+            "quantity": 1
+          }
+        ]
+      }
+    },
+    {
+      "relevant": false,
+      "borderlineRelevant": false,
+      "arguablyTwoCard": true,
+      "definitelyTwoCard": false,
+      "speed": 5,
+      "massLandDenial": false,
+      "extraTurn": false,
+      "lock": false,
+      "skipTurns": false,
+      "controlAllOpponents": false,
+      "controlSomeOpponents": false,
+      "combo": {
+        "id": "4812-5276",
+        "uses": [
+          {
+            "card": {
+              "id": 5276,
+              "name": "Leonin Relic-Warder",
+              "oracleId": "8e720216-a980-4a34-8aef-62ac3ef15a6e",
+              "typeLine": "Creature \u2014 Cat Cleric"
+            },
+            "quantity": 1
+          },
+          {
+            "card": {
+              "id": 4812,
+              "name": "Animate Dead",
+              "oracleId": "c0d8fef4-65f4-4769-982d-b397d2b7e977",
+              "typeLine": "Enchantment \u2014 Aura"
+            },
+            "quantity": 1
+          }
+        ]
+      }
+    }
+  ]
+}

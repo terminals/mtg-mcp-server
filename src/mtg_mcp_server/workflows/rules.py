@@ -182,10 +182,22 @@ _KEYWORD_INTERACTIONS: dict[str, list[tuple[str, str]]] = {
 # ---------------------------------------------------------------------------
 
 
+# A sentence ends at a period that follows a non-space character and is
+# followed by whitespace plus a capital/opening bracket, or by end of text.
+# Splitting on every "." cut rules mid-reference ("see rule 704.") and at
+# the ". . ." ellipses the Comprehensive Rules use in quoted ability text.
+_SENTENCE_END_RE = re.compile(r"(?<=\S)\.(?=\s+[A-Z(“\"]|\s*$)")
+
+
+def _first_sentence(text: str) -> str:
+    """Return the first full sentence of rules text (or all of it)."""
+    match = _SENTENCE_END_RE.search(text)
+    return text[: match.end()] if match else text
+
+
 def _fmt_rule_concise(rule: Rule) -> str:
     """Format a rule for concise output: number + first sentence."""
-    first_line = rule.text.split(".")[0] + "." if "." in rule.text else rule.text
-    return f"**{rule.number}** {first_line}"
+    return f"**{rule.number}** {_first_sentence(rule.text)}"
 
 
 def _fmt_rule_detailed(rule: Rule) -> str:

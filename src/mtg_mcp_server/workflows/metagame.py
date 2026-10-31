@@ -540,9 +540,10 @@ async def archetype_comparison(
             sideboard_sizes.append("N/A")
             all_mainboard_cards.append(Counter())
         else:
-            mainboard_sizes.append(str(len(result.mainboard)))
-            sideboard_sizes.append(str(len(result.sideboard)))
+            # Decklist lines are "4 Lightning Bolt"; report cards, not lines.
             parsed = parse_decklist(result.mainboard)
+            mainboard_sizes.append(str(sum(qty for qty, _ in parsed)))
+            sideboard_sizes.append(str(sum(qty for qty, _ in parse_decklist(result.sideboard))))
             all_mainboard_cards.append(Counter(name for _, name in parsed))
 
     row = "| Mainboard | " + " | ".join(mainboard_sizes) + " |"

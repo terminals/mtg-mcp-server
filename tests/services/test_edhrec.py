@@ -197,6 +197,30 @@ class TestCommanderTopCards:
         assert result.cardlists == []
         assert result.total_decks == 0
 
+    @respx.mock
+    async def test_total_decks_from_commander_card_entry(self):
+        """Deck count falls back to container.json_dict.card.num_decks.
+
+        Regression: EDHREC dropped the top-level ``num_decks_avg`` in 2026, so
+        Squall showed "0 decks" while the page reported 8,429.
+        """
+        fixture = {
+            "header": "Squall, SeeD Mercenary (Commander)",
+            "container": {
+                "json_dict": {
+                    "card": {"name": "Squall, SeeD Mercenary", "num_decks": 8429},
+                    "cardlists": [],
+                }
+            },
+        }
+        respx.get(f"{BASE_URL}/pages/commanders/squall-seed-mercenary.json").mock(
+            return_value=httpx.Response(200, json=fixture)
+        )
+        async with EDHRECClient(base_url=BASE_URL) as client:
+            result = await client.commander_top_cards("Squall, SeeD Mercenary")
+
+        assert result.total_decks == 8429
+
 
 class TestCardSynergy:
     """Card synergy score lookup for a specific commander."""

@@ -97,7 +97,7 @@ async def decklist(
     total_cards = 0
     for section_name, cards in boards:
         if cards:
-            lines.append(f"\n### {section_name} ({len(cards)})")
+            lines.append(f"\n### {section_name} ({sum(c.quantity for c in cards)})")
             for card in cards:
                 lines.append(f"{card.quantity}x {card.name}")
                 total_cards += card.quantity
@@ -278,8 +278,26 @@ async def search_decks(
             if deck.public_url:
                 lines.append(f"  {deck.public_url}")
 
+    # Moxfield's public deck search has no reliable free-text filter: it can
+    # return the newest decks regardless of `query`. Say so instead of
+    # presenting unrelated decks as matches.
+    query_ignored = bool(
+        query
+        and result.decks
+        and not any(query.lower() in (d.name or "").lower() for d in result.decks)
+    )
+    if query_ignored:
+        lines.append("")
+        lines.append(
+            f"*Note: none of these deck names contain '{query}'. Moxfield's public "
+            "search does not reliably filter by text, so these results are not "
+            "matches for your query. Filter by `format`, or use "
+            "`moxfield_user_decks` for a known author.*"
+        )
+
     # Build structured content
     structured = {
+        "query_ignored": query_ignored,
         "total_results": result.total_results,
         "page": result.page,
         "page_size": result.page_size,

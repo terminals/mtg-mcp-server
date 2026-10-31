@@ -158,6 +158,32 @@ class TestEstimateBracket:
         assert isinstance(result, BracketEstimate)
         assert result.bracket_tag == "E"
 
+    def test_bracket_parses_per_entry_response_shape(self):
+        """2026 response shape (``cards``/``combos`` with flags) yields findings.
+
+        Regression: the endpoint stopped returning ``gameChangerCards`` and
+        ``twoCardCombos``; every flag was dropped and the tool reported "no
+        bracket-relevant concerns" for a deck with game changers, mass land
+        denial, and two-card combos. Fixture trimmed from a real response.
+        """
+        result = BracketEstimate.model_validate(
+            _load_fixture("estimate_bracket_per_entry_response.json")
+        )
+        assert result.bracket_tag == "R"
+        assert result.game_changer_cards == [
+            "Bolas's Citadel",
+            "Drannith Magistrate",
+            "Opposition Agent",
+        ]
+        assert result.mass_land_denial_cards == ["Winter Orb"]
+        assert result.extra_turn_cards == []
+        assert result.banned_cards == []
+        assert sorted(result.two_card_combos) == [
+            "Abdel Adrian, Gorion's Ward + Animate Dead",
+            "Abdel Adrian, Gorion's Ward + Necromancy",
+        ]
+        assert result.lock_combos == []
+
     def test_bracket_handles_dict_game_changers(self):
         """Game changer cards returned as dicts are coerced to card names."""
         data = {

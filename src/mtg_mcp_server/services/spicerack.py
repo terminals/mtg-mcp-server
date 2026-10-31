@@ -92,7 +92,9 @@ class SpicerackClient(BaseClient):
         """
         params: dict[str, str | int] = {"num_days": num_days}
         if event_format is not None:
-            params["event_format"] = event_format
+            # Spicerack's API documents format values in upper case
+            # ("MODERN", "STANDARD", "OTHER") and rejects unknown values.
+            params["event_format"] = event_format.strip().upper()
 
         log.debug("get_tournaments", num_days=num_days, event_format=event_format)
 

@@ -35,6 +35,15 @@ _MAX_COMBOS = 5
 _MAX_STAPLES = 10
 
 
+def _fmt_combo_count(count: int) -> str:
+    """Format a combo count from a lookup capped at ``_MAX_COMBOS``.
+
+    A full page means there are at least that many combos, so show "5+"
+    rather than an exact-looking "5".
+    """
+    return f"{_MAX_COMBOS}+" if count >= _MAX_COMBOS else str(count)
+
+
 def _fmt_synergy(value: float) -> str:
     """Format a synergy score with sign prefix (e.g. '+61%' or '-5%')."""
     return f"+{value:.0%}" if value >= 0 else f"{value:.0%}"
@@ -277,7 +286,7 @@ async def commander_overview(
             lines[-1] += f" | P/T: {card.power}/{card.toughness}"
 
         if spellbook_ok:
-            lines.append(f"Combos: {len(combos)}")
+            lines.append(f"Combos: {_fmt_combo_count(len(combos))}")
         else:
             lines.append(f"Combos: unavailable ({spellbook_error})")
 
@@ -460,7 +469,7 @@ async def evaluate_upgrade(
             lines.append("Synergy: EDHREC disabled")
 
         if spellbook_ok:
-            lines.append(f"Combos: {len(combos)}")
+            lines.append(f"Combos: {_fmt_combo_count(len(combos))}")
         else:
             lines.append(f"Combos: unavailable ({spellbook_error})")
     else:
@@ -627,7 +636,7 @@ async def card_comparison(
             )
             combo_str = "N/A"
         else:
-            combo_str = str(len(cmb_result))
+            combo_str = _fmt_combo_count(len(cmb_result))
 
         price_str = f"${card.prices.usd}" if card.prices.usd is not None else "N/A"
 

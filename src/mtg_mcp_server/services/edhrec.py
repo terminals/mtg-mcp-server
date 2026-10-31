@@ -180,6 +180,15 @@ class EDHRECClient(BaseClient):
         # Navigate: data -> container -> json_dict -> cardlists
         container = data.get("container")
         json_dict = container.get("json_dict") if isinstance(container, dict) else None
+
+        # EDHREC dropped the top-level ``num_decks_avg`` in 2026; the deck
+        # count now lives on the commander's own card entry.
+        if not total_decks and isinstance(json_dict, dict):
+            card_info = json_dict.get("card")
+            if isinstance(card_info, dict):
+                raw_card_total = card_info.get("num_decks")
+                if isinstance(raw_card_total, (int, float)):
+                    total_decks = int(raw_card_total)
         raw_cardlists = json_dict.get("cardlists", []) if isinstance(json_dict, dict) else []
         if not isinstance(raw_cardlists, list):
             raw_cardlists = []

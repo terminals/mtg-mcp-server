@@ -187,7 +187,7 @@ class TestEventFormatFilter:
             await client.get_tournaments(event_format="Legacy")
 
         request = respx.calls.last.request
-        assert "event_format=Legacy" in str(request.url)
+        assert "event_format=LEGACY" in str(request.url)
 
     @respx.mock
     async def test_num_days_param_passed(self):

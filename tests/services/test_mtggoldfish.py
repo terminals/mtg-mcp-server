@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -39,6 +40,16 @@ def _clear_goldfish_cache():
 def _load_fixture(name: str) -> str:
     """Load an MTGGoldfish HTML/text fixture by filename."""
     return (FIXTURES / name).read_text()
+
+
+def _mock_modern_metagame() -> None:
+    """Mock the Modern metagame page (used to resolve real archetype slugs)."""
+    html = _load_fixture("metagame_modern.html")
+    respx.get(f"{BASE_URL}/metagame/modern/full").mock(
+        return_value=httpx.Response(
+            200, content=html.encode(), headers={"Content-Type": "text/html"}
+        )
+    )
 
 
 class TestSlugify:
@@ -360,6 +371,7 @@ class TestGetArchetype:
         respx.get(f"{BASE_URL}/archetype/modern-nonexistent-deck").mock(
             return_value=httpx.Response(404, content=html.encode())
         )
+        _mock_modern_metagame()
         async with MTGGoldfishClient(base_url=BASE_URL) as client:
             with pytest.raises(ArchetypeNotFoundError, match="Nonexistent Deck"):
                 await client.get_archetype("modern", "Nonexistent Deck")
@@ -371,12 +383,44 @@ class TestGetArchetype:
         respx.get(f"{BASE_URL}/archetype/modern-boros-energy").mock(
             return_value=httpx.Response(404, content=html.encode())
         )
+        _mock_modern_metagame()
         async with MTGGoldfishClient(base_url=BASE_URL) as client:
             with pytest.raises(ArchetypeNotFoundError):
                 await client.get_archetype("modern", "Boros Energy")
 
-        # Verify the URL used the slugified name
-        assert respx.calls.last.request.url.path == "/archetype/modern-boros-energy"
+        # Verify the first request used the slugified name
+        assert respx.calls[0].request.url.path == "/archetype/modern-boros-energy"
+
+    @respx.mock
+    async def test_404_falls_back_to_metagame_slug(self):
+        """A UUID-style archetype URL is found through the metagame page.
+
+        Regression: Pauper "Bogles" lives at /archetype/bogles-<uuid>, so the
+        name-derived /archetype/pauper-bogles 404'd and the tools reported
+        "Archetype not found" for an archetype listed in the metagame.
+        """
+        html_404 = _load_fixture("error_not_found.html")
+        html_ok = _load_fixture("archetype_boros_energy.html")
+        respx.get(f"{BASE_URL}/archetype/pauper-bogles").mock(
+            return_value=httpx.Response(404, content=html_404.encode())
+        )
+        real = respx.get(f"{BASE_URL}/archetype/bogles-df219f8f").mock(
+            return_value=httpx.Response(
+                200, content=html_ok.encode(), headers={"Content-Type": "text/html"}
+            )
+        )
+        respx.get(url__regex=rf"{BASE_URL}/deck/download/.*").mock(
+            return_value=httpx.Response(200, text="4 Gladecover Scout\n")
+        )
+        meta = GoldfishMetaSnapshot(
+            format="pauper",
+            archetypes=[GoldfishArchetype(name="Bogles", slug="bogles-df219f8f")],
+        )
+        async with MTGGoldfishClient(base_url=BASE_URL) as client:
+            with patch.object(client, "get_metagame", AsyncMock(return_value=meta)):
+                await client.get_archetype("pauper", "Bogles")
+
+        assert real.called
 
 
 class TestGetFormatStaples:

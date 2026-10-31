@@ -1236,3 +1236,39 @@ class TestRandomCard:
         card = await loaded_client.random_card(color_identity=frozenset({"R"}))
         if card is not None:
             assert frozenset(card.color_identity).issubset({"R"})
+
+
+class TestSharedBulkClient:
+    """The bulk provider and workflow server share one client (one data copy)."""
+
+    async def test_nested_users_share_one_client(self):
+        """Second user reuses the first client; factory runs once."""
+        from mtg_mcp_server.services import scryfall_bulk as bulk_mod
+
+        built: list[ScryfallBulkClient] = []
+
+        def factory() -> ScryfallBulkClient:
+            client = ScryfallBulkClient(base_url=_BASE_URL, refresh_hours=24)
+            built.append(client)
+            return client
+
+        async with bulk_mod.shared_bulk_client(factory) as first:
+            async with bulk_mod.shared_bulk_client(factory) as second:
+                assert first is second
+            # Still alive for the first user after the second leaves
+            assert bulk_mod._shared_client is first
+
+        assert len(built) == 1
+        assert bulk_mod._shared_client is None
+
+    async def test_new_client_after_last_user_leaves(self):
+        """A later lifespan builds a fresh client once the old one is gone."""
+        from mtg_mcp_server.services import scryfall_bulk as bulk_mod
+
+        def factory() -> ScryfallBulkClient:
+            return ScryfallBulkClient(base_url=_BASE_URL, refresh_hours=24)
+
+        async with bulk_mod.shared_bulk_client(factory) as first:
+            pass
+        async with bulk_mod.shared_bulk_client(factory) as second:
+            assert second is not first

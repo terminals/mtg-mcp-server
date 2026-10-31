@@ -240,12 +240,80 @@ class BracketEstimate(BaseModel):
     bracket_tag: str | None = Field(None, alias="bracketTag")
     banned_cards: list[str] = Field(default_factory=list, alias="bannedCards")
     game_changer_cards: list[str] = Field(default_factory=list, alias="gameChangerCards")
+    mass_land_denial_cards: list[str] = Field(default_factory=list, alias="massLandDenialCards")
+    extra_turn_cards: list[str] = Field(default_factory=list, alias="extraTurnCards")
     two_card_combos: list[str] = Field(default_factory=list, alias="twoCardCombos")
     lock_combos: list[str] = Field(default_factory=list, alias="lockCombos")
 
     model_config = {"populate_by_name": True}
 
-    @field_validator("banned_cards", "game_changer_cards", "lock_combos", mode="before")
+    @model_validator(mode="before")
+    @classmethod
+    def _from_per_entry_shape(cls, data: object) -> object:
+        """Translate Spellbook's 2026 response shape into the flat lists.
+
+        The endpoint now returns ``cards`` (each ``{"card": {...}, "banned",
+        "gameChanger", "massLandDenial", "extraTurn"}``) and ``combos`` (each
+        ``{"combo": {...}, "definitelyTwoCard", "lock", ...}``) instead of the
+        old ``gameChangerCards`` / ``twoCardCombos`` lists. Without this, every
+        flagged card was dropped and the tool reported no concerns.
+        """
+        if not isinstance(data, dict) or not (
+            isinstance(data.get("cards"), list) or isinstance(data.get("combos"), list)
+        ):
+            return data
+
+        out = dict(data)
+        card_flags = {
+            "banned": "bannedCards",
+            "gameChanger": "gameChangerCards",
+            "massLandDenial": "massLandDenialCards",
+            "extraTurn": "extraTurnCards",
+        }
+        for flag, key in card_flags.items():
+            if key in out:
+                continue
+            names: list[str] = []
+            for entry in data.get("cards") or []:
+                if isinstance(entry, dict) and entry.get(flag):
+                    card = entry.get("card")
+                    if isinstance(card, dict) and card.get("name"):
+                        names.append(str(card["name"]))
+            out[key] = names
+
+        def _combo_label(entry: dict) -> str | None:
+            combo = entry.get("combo")
+            uses = combo.get("uses") if isinstance(combo, dict) else None
+            if not isinstance(uses, list):
+                return None
+            names = [
+                str(u["card"]["name"])
+                for u in uses
+                if isinstance(u, dict) and isinstance(u.get("card"), dict) and u["card"].get("name")
+            ]
+            return " + ".join(names) or None
+
+        combo_flags = {"definitelyTwoCard": "twoCardCombos", "lock": "lockCombos"}
+        for flag, key in combo_flags.items():
+            if key in out:
+                continue
+            labels: list[str] = []
+            for entry in data.get("combos") or []:
+                if isinstance(entry, dict) and entry.get(flag):
+                    label = _combo_label(entry)
+                    if label:
+                        labels.append(label)
+            out[key] = labels
+        return out
+
+    @field_validator(
+        "banned_cards",
+        "game_changer_cards",
+        "mass_land_denial_cards",
+        "extra_turn_cards",
+        "lock_combos",
+        mode="before",
+    )
     @classmethod
     def _extract_card_names(cls, v: list) -> list[str]:
         """Extract card names from card dicts, keep strings as-is."""

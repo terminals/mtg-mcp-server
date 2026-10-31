@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bulk data no longer crashes small hosted instances.** Scryfall's oracle bulk
+  file is now ~210MB uncompressed; loading it whole (decompressed text plus a list
+  of every raw card dict) peaked above 1.3GB and the process was killed, so every
+  bulk-backed tool returned HTTP 500 on hosted deployments. The parser now streams
+  gzipped JSONL line by line and interns legality strings (~270MB peak in a slim
+  standalone measurement), and the bulk provider and workflow server share one
+  client instead of each holding a full copy. New `MTG_MCP_BULK_DATA_PRELOAD`
+  setting warms the data at startup for HTTP deployments.
+- `spellbook_estimate_bracket` reads Commander Spellbook's current response shape
+  (per-card `gameChanger`/`massLandDenial`/`extraTurn` flags and per-combo
+  `definitelyTwoCard`/`lock` flags). It previously reported "no bracket-relevant
+  concerns" for every deck. Mass land denial and extra-turn cards are now listed.
+- EDHREC deck counts read the commander's own `num_decks` now that the top-level
+  `num_decks_avg` is gone (was showing "0 decks").
+- MTGGoldfish archetypes with UUID-style URLs (e.g. Pauper Bogles, Elves) resolve
+  through the metagame page's links instead of 404ing.
+- `goldfish_deck_price`, `archetype_comparison` and `moxfield_decklist` count cards,
+  not decklist lines.
+- `card_comparison`, `commander_overview` and `evaluate_upgrade` show "5+" when the
+  combo lookup hits its cap, instead of an exact-looking "5".
+- Concise rules output keeps the whole first sentence instead of cutting at the
+  first "." (e.g. "see rule 704.").
+- 17Lands card tools fail with a clear explanation when the public endpoint returns
+  no win rates (it now lists cards with null stats for every set) instead of
+  showing tables of "N/A".
+- Spicerack requests send upper-case `event_format` values, as its API now documents.
+- `moxfield_search_decks` flags results that don't match `query`, since Moxfield's
+  public search doesn't reliably filter by text.
+
 - `suggest_sideboard` now filters sideboard candidates by the deck's color identity,
   preventing off-color recommendations. Colorless cards still pass the filter.
   Empty categories after filtering are reported in `data["empty_categories"]` and

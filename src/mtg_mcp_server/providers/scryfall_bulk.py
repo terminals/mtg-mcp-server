@@ -33,7 +33,11 @@ from mtg_mcp_server.providers import (
 # whether tournament-mode ranking is available.
 from mtg_mcp_server.providers import mtggoldfish as _goldfish_mod
 from mtg_mcp_server.services.mtggoldfish import MTGGoldfishError
-from mtg_mcp_server.services.scryfall_bulk import ScryfallBulkClient, ScryfallBulkError
+from mtg_mcp_server.services.scryfall_bulk import (
+    ScryfallBulkClient,
+    ScryfallBulkError,
+    shared_bulk_client,
+)
 from mtg_mcp_server.utils.color_identity import is_within_identity, parse_color_identity
 from mtg_mcp_server.utils.format_rules import get_format_rules
 from mtg_mcp_server.utils.formatters import ResponseFormat, format_card_detail
@@ -69,18 +73,25 @@ _client: ScryfallBulkClient | None = None
 async def scryfall_bulk_lifespan(server: FastMCP):
     """Initialize the ScryfallBulkClient and start its background refresh timer.
 
-    Data is loaded lazily on the first tool call, not during startup. The
-    background task periodically re-downloads data at the configured interval.
+    Data is loaded lazily on the first tool call unless
+    ``MTG_MCP_BULK_DATA_PRELOAD`` is set. The background task periodically
+    re-downloads data at the configured interval. The client is shared with
+    the workflow server so only one copy of the card data is held in memory.
     """
     global _client
     settings = Settings()
-    client = ScryfallBulkClient(
-        base_url=settings.scryfall_base_url,
-        refresh_hours=settings.bulk_data_refresh_hours,
-    )
-    async with client:
+
+    def _build() -> ScryfallBulkClient:
+        return ScryfallBulkClient(
+            base_url=settings.scryfall_base_url,
+            refresh_hours=settings.bulk_data_refresh_hours,
+        )
+
+    async with shared_bulk_client(_build) as client:
         _client = client
         client.start_background_refresh()
+        if settings.bulk_data_preload:
+            client.start_preload()
         yield {}
     _client = None
 
